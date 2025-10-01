@@ -1,4 +1,10 @@
+
 # AternyxMetaParser 简易说明 / Quick Guide
+
+## 依赖 Dependencies
+
+- [llvm/llvm-project (libclang)](https://github.com/llvm/llvm-project)
+- [kainjow/Mustache](https://github.com/kainjow/Mustache)
 
 ## 简介 Introduction
 
@@ -10,6 +16,7 @@
 
 1. **编译项目 Build the Project**
    - CMakePreset + MSVC
+   - 需要安装LLVM以获取libclang.dll, 注意添加到PATH
    - 推荐使用 `Developr PowerShell for VS` 打开目录，然后 `Code .` 用VSCode打开
    - 然后 `CMake --build --preset ninja-debug --target AternyxParser` 编译即可
 
