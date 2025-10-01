@@ -1,0 +1,45 @@
+
+# .clang-format
+BasedOnStyle: Google
+Standard: c++20
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ColumnLimit: 120
+
+# 空格/换行
+SpaceBeforeParens: ControlStatements
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+# 命名空间与大括号
+NamespaceIndentation: None
+BreakBeforeBraces: Attach
+BraceWrapping:
+  AfterNamespace: true
+  AfterClass: false
+  AfterStruct: false
+  AfterControlStatement: false
+  AfterFunction: true
+  BeforeElse: false
+
+# 指针/引用
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# include 排序
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<'
+    Priority: 1
+  - Regex: '^"'
+    Priority: 2
+
+# 其他
+ReflowComments: true
+BinPackParameters: false
+BinPackArguments: false
+Cpp11BracedListStyle: true

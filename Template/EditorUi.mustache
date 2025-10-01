@@ -1,0 +1,28 @@
+#pragma once
+
+{{#include_file_list}}
+#include "{{include_path}}"
+{{/include_file_list}}
+
+namespace Aternyx::Editor::EditorUi {
+{{#meta_type_list}}
+template <>
+struct ImGuiUtilityInternal<{{type_name}}> {
+  static bool OnEditGui(const char* label, {{type_name}}& v) {
+    if (!ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen))
+      return false;
+
+    bool is_changed = false;
+
+    {{#property_list}}
+    is_changed |= ImGuiUtility::OnEditGui("{{name}}", v.{{name}});
+    {{/property_list}}
+
+    if (is_changed)
+      v.is_dirty = true;
+
+    return is_changed;
+  }
+};
+{{/meta_type_list}}
+}

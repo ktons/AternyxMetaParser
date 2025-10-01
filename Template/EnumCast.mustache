@@ -1,0 +1,22 @@
+#pragma once
+
+#include <stdint.h>
+{{#include_file_list}}
+#include "{{include_path}}"
+{{/include_file_list}}
+
+namespace YAML {
+{{#meta_type_list}}
+template <>
+struct convert<{{type_name}}> {
+  static Node encode(const {{type_name}} & v) {
+    return Node{({{base_type_name}})v};
+  }
+
+  static bool decode(const Node& node, {{type_name}} & v) {
+    v = static_cast<{{type_name}}>(node.as<{{base_type_name}}>());
+    return true;
+  }
+};
+{{/meta_type_list}}
+}  // namespace YAML

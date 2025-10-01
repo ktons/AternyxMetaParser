@@ -1,0 +1,38 @@
+#pragma once
+
+{{#include_file_list}}
+#include "{{include_path}}"
+{{/include_file_list}}
+
+namespace YAML {
+{{#meta_type_list}}
+template <>
+struct convert<{{type_name}}> {
+  static Node encode(const {{type_name}} & v) {
+    {{#base_type_name}}
+    Node node = convert<{{base_type_name}}>::encode(v);
+    {{/base_type_name}}{{^base_type_name}}
+    Node node;
+    {{/base_type_name}}
+    {{#property_list}}
+    node["{{name}}"] = v.{{name}};
+    {{/property_list}}
+    {{#function_list}}
+    node["{{name}}"] = v.{{name}};
+    {{/function_list}}
+    return node;
+  }
+
+  static bool decode(const Node& node, {{type_name}} & v) {
+    {{#base_type_name}}
+    convert<{{base_type_name}}>::decode(node, v);
+    {{/base_type_name}}
+    {{#property_list}}
+    if (!node["{{name}}"].IsNull())
+      v.{{name}} = node["{{name}}"].as<{{type_name}}>();
+    {{/property_list}}
+    return true;
+  }
+};
+{{/meta_type_list}}
+}  // namespace YAML

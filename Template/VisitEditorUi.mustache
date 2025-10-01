@@ -1,0 +1,19 @@
+#pragma once
+
+#include "_generated/reflection/component_variant.gen.h"
+
+namespace Aternyx::Editor::EditorUi {
+{{#meta_type_list}}
+struct {{simple_type_name}}VisitEditorUi {
+  {{#child_type_list}}
+  auto operator()({{child_type_name}}* v) {
+    {{#custom_ui}}
+    ImGuiUtility::OnCustomGui("{{child_simple_type_name}}", *v);
+    {{/custom_ui}}{{#editor_ui}}
+    ImGuiUtility::OnEditGui("{{child_simple_type_name}}", *v);
+    {{/editor_ui}}
+  }
+  {{/child_type_list}}
+};
+{{/meta_type_list}}
+}

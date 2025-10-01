@@ -1,0 +1,32 @@
+# EditorConfig is awesome: http://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+max_line_length = 120
+
+[*.{h,hpp,hh,hxx,cpp,cc,cxx,inl,ipp}]
+indent_size = 2
+
+[*.{c,cu,cl}]
+indent_size = 2
+
+[*.{cmake,txt}]
+indent_size = 2
+
+[*.{glsl,hlsl,metal,shader,usf,ush}]
+indent_size = 2
+
+[*.{py,pyi}]
+indent_size = 4
+
+[.clang-format]
+indent_size = 2
+
+[.clang-tidy]
+indent_size = 2

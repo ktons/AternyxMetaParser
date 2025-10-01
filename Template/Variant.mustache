@@ -1,0 +1,46 @@
+#pragma once
+
+#include <variant>
+#include <ucore/struct/object_pool.h>
+
+{{#meta_type_list}}
+{{#child_type_list}}
+namespace {{child_namespace}} {
+{{#child_is_struct}}struct{{/child_is_struct}}{{^child_is_struct}}class{{/child_is_struct}} {{child_simple_type_name}};
+}
+{{/child_type_list}}
+{{/meta_type_list}}
+
+namespace Aternyx {
+{{#meta_type_list}}
+using {{simple_type_name}}Variant = std::variant<{{#child_type_list}}{{child_type_name}}*{{#comma}}, {{/comma}}{{/child_type_list}}>;
+
+struct {{simple_type_name}}VariantUtility {
+static std::vector<{{simple_type_name}}Variant> CreateVariant(std::vector<{{type_name}}*>& values) {
+  std::vector<{{simple_type_name}}Variant> result;
+  for (auto& value : values) {
+    {{#child_type_list}}
+    if (value->Type() == "{{child_simple_type_name}}") {
+      auto variant_value = static_cast<{{child_type_name}}*>(value);
+      result.push_back(variant_value);
+    }
+    {{/child_type_list}}
+  }
+  return std::move(result);
+}
+
+static std::vector<{{simple_type_name}}Variant> CreateVariant(std::vector<ObjectHandle<{{type_name}}>*>& values) {
+  std::vector<{{simple_type_name}}Variant> result;
+  for (auto& value : values) {
+    {{#child_type_list}}
+    if (value->data->Type() == "{{child_simple_type_name}}") {
+      auto variant_value = static_cast<{{child_type_name}}*>(value->data);
+      result.push_back(variant_value);
+    }
+    {{/child_type_list}}
+  }
+  return std::move(result);
+}
+};
+{{/meta_type_list}}
+}

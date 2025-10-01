@@ -1,0 +1,44 @@
+#pragma once
+
+#include <ucore/struct/object_pool.h>
+#include "precompile/component_serialization.h"
+
+{{#meta_type_list}}
+{{#child_type_list}}
+namespace {{child_namespace}} {
+{{#child_is_struct}}struct{{/child_is_struct}}{{^child_is_struct}}class{{/child_is_struct}} {{child_simple_type_name}};
+}
+{{/child_type_list}}
+
+namespace YAML {
+template <typename T>
+Node {{simple_type_name}}Serialize(const {{type_name}}* value) {
+  return Node{*static_cast<const T*>(value)};
+}
+
+std::unordered_map<std::string, std::function<Aternyx::ObjectHandle<{{type_name}}>*(const Node& node)>> _{{simple_type_name}}DeSerializeMap{
+{{#child_type_list}}
+  {"{{child_simple_type_name}}", {{simple_type_name}}DeSerialize<{{child_type_name}}>},
+{{/child_type_list}}
+};
+
+std::unordered_map<std::string, std::function<Node(const {{type_name}}*)>> _{{simple_type_name}}SerializeMap{
+{{#child_type_list}}
+  {"{{child_simple_type_name}}", {{simple_type_name}}Serialize<{{child_type_name}}>},
+{{/child_type_list}}
+};
+
+template <>
+struct convert<Aternyx::ObjectHandle<{{type_name}}>*> {
+  static Node encode(const Aternyx::ObjectHandle<{{type_name}}>* v) {
+    return _{{simple_type_name}}SerializeMap[v->data->Type()](v->data);
+  }
+
+  static bool decode(const Node& node, Aternyx::ObjectHandle<{{type_name}}>*& v) {
+    auto type = node["Type()"].as<std::string>();
+    v = _{{simple_type_name}}DeSerializeMap[type.c_str()](node);
+    return true;
+  }
+};
+}  // namespace YAML
+{{/meta_type_list}}

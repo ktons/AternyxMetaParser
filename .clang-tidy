@@ -1,0 +1,83 @@
+# Checks 中编写注释时需要带 , 以保证规则能正确识别
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  google-*,
+  hicpp-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  #-fuchsia-*,
+  -altera-*,
+  -llvm-header-guard,
+  -google-runtime-references,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers,
+  -modernize-use-trailing-return-type,    # 允许使用传统函数返回值声明,
+  -misc-non-private-member-variables-in-classes,    # 允许public成员在 struct 与 class 中,
+  -bugprone-easily-swappable-parameters,  # 允许使用短参数,
+  -hicpp-uppercase-literal-suffix,  # 允许使用小写字母作为类型后缀, 如 1.0f, 下面一条也是同理,
+  -readability-uppercase-literal-suffix,
+  -readability-identifier-length,   # 允许短变量名,
+  -cppcoreguidelines-non-private-member-variables-in-classes,  # 允许类中包含非私有变量,
+  -google-readability-todo,  # TODO允许不写标识, 
+  -google-readability-braces-around-statements,   # return允许不带括号, 
+
+WarningsAsErrors: >
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  modernize-use-nullptr
+
+HeaderFilterRegex: '^(Engine|Editor|Tools)/'
+
+AnalyzeTemporaryDtors: true
+FormatStyle: none
+
+ExtraArgs:
+  - -std=c++20
+  - -fno-exceptions
+  - -fno-rtti
+
+CheckOptions:
+  # 统一命名规则（与 STYLE.md 对齐）
+  - key: readability-identifier-naming.NamespaceCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PublicMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: _
+  # 常量使用 k 前缀 + CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: k
+  - key: readability-identifier-naming.MemberConstantPrefix
+    value: k
+  - key: readability-identifier-naming.ClassConstantPrefix
+    value: k
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: k
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase

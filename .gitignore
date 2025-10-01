@@ -1,0 +1,23 @@
+build/
+cmake-build-debug-visual-studio/
+cmake-build-release-visual-studio/
+cmake-build-debug/
+.vs
+.idea
+.VSCodeCounter
+.DS_Store
+*.log
+temp/
+*.rdc
+*.cap
+ clangLog.txt
+*/_Generated/*
+*.vcxproj
+*.vcxproj*
+*.cmake
+*.sln
+*/CMakeFiles/*
+CMakeFiles/
+.cache/
+.cursor/
+test_detail.xml
