@@ -17,7 +17,7 @@
             }
         },
         {
-            "name": "ninja-debug",
+            "name": "ninja-debug-msvc",
             "inherits": "base",
             "displayName": "Ninja (MSVC) - Debug",
             "generator": "Ninja",
@@ -29,7 +29,7 @@
             }
         },
         {
-            "name": "ninja-release",
+            "name": "ninja-release-msvc",
             "inherits": "base",
             "displayName": "Ninja (MSVC) - Release",
             "generator": "Ninja",
@@ -40,38 +40,49 @@
             }
         },
         {
-            "name": "vs2022-x64",
+            "name": "ninja-debug-clang",
             "inherits": "base",
-            "displayName": "Visual Studio 2022 - x64",
-            "generator": "Visual Studio 17 2022",
-            "architecture": {
-                "value": "x64"
-            },
+            "displayName": "Ninja (Clang) - Debug",
+            "generator": "Ninja",
             "cacheVariables": {
-                "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "ninja-release-clang",
+            "inherits": "base",
+            "displayName": "Ninja (Clang) - Release",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_BUILD_TYPE": "Release"
             }
         }
     ],
     "buildPresets": [
         {
-            "name": "ninja-debug",
-            "configurePreset": "ninja-debug",
+            "name": "ninja-debug-msvc",
+            "configurePreset": "ninja-debug-msvc",
             "jobs": 0
         },
         {
-            "name": "ninja-release",
-            "configurePreset": "ninja-release",
+            "name": "ninja-release-msvc",
+            "configurePreset": "ninja-release-msvc",
             "jobs": 0
         },
         {
-            "name": "vs2022-Debug",
-            "configurePreset": "vs2022-x64",
-            "configuration": "Debug"
+            "name": "ninja-debug-clang",
+            "configurePreset": "ninja-debug-clang",
+            "jobs": 0
         },
         {
-            "name": "vs2022-Release",
-            "configurePreset": "vs2022-x64",
-            "configuration": "Release"
+            "name": "ninja-release-clang",
+            "configurePreset": "ninja-release-clang",
+            "jobs": 0
         }
     ]
 }

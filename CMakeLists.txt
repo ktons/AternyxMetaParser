@@ -15,5 +15,3 @@ endfunction()
 add_subdirectory(3rdparty)
 
 add_subdirectory(Source)
-
-add_subdirectory(Example)
