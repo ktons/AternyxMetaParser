@@ -40,7 +40,6 @@ struct MetaParser::Impl {
 MetaParser::MetaParser(const std::string& mainSourceFile, const std::vector<std::string>& includePath)
     : impl_(std::make_unique<Impl>()) {
   impl_->sourcePath = mainSourceFile;
-  impl_->arguments.push_back("-includeparser/precompile/core.h");
   for (const auto& path : includePath) {
     std::string argument = "-I" + path;
     impl_->arguments.push_back(argument);
