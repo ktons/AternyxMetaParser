@@ -1,9 +1,9 @@
-#include "Parser/MetaInfo.h"
+#include "parser/meta_info.h"
 
 #include <iostream>
 #include <unordered_set>
 
-#include "Utils/Utils.h"
+#include "utils/utils.h"
 
 namespace Aternyx {
 void AstTree::DebugInfo() const {

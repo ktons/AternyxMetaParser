@@ -1,8 +1,8 @@
-﻿#include "CursorType.h"
+﻿#include "cursor_type.h"
 // #include "clang-c/lex"
 // #include <clang-c/le
 // #include <llvm-c/
-#include "Cursor.h"
+#include "cursor.h"
 
 CursorType::CursorType(const CXType& handle) : m_handle(handle) {}
 

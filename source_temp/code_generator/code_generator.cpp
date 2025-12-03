@@ -1,4 +1,4 @@
-#include "CodeGenerator/CodeGenerator.h"
+#include "code_generator/code_generator.h"
 
 #include <algorithm>
 #include <clang-c/Index.h>
@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "Utils/Utils.h"
+#include "utils/utils.h"
 
 using Mustache = kainjow::mustache::mustache;
 using MustacheData = kainjow::mustache::data;

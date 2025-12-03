@@ -1,7 +1,7 @@
 ﻿// reference: https://github.com/AustinBrunkhorst/CPP-Reflection
 
-#include "CodeGenerator/CodeGenerator.h"
-#include "Parser/Parser.h"
+#include "code_generator/code_generator.h"
+#include "parser/parser.h"
 
 namespace mustache = kainjow::mustache;
 

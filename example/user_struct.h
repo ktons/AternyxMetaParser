@@ -1,7 +1,7 @@
 #include <string>
 #include <vector>
 
-#include "../Meta/MetaAttributes.h"
+#include "../meta/meta_attributes.h"
 
 namespace UserStruct {
 CLASS(ClassA, Serialization) {

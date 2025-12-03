@@ -1,4 +1,4 @@
-﻿#include "Cursor.h"
+﻿#include "cursor.h"
 
 Cursor::Cursor(const CXCursor& handle) : m_handle(handle) {}
 

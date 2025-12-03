@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "CursorType.h"
+#include "cursor_type.h"
 
 inline void clangToString(const CXString& str, std::string& out) {
   auto cstr = clang_getCString(str);
