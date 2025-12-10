@@ -62,7 +62,7 @@ void MetaParser::BuildCursor() {
   if (index) {
     clang_disposeIndex(index);
   }
-  impl_->DebugAst();
+  // impl_->DebugAst();
 }
 
 AstTree& MetaParser::GetAstTree() {

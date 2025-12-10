@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "config/arg_config.h"
 #include "utils/utils.h"
 
 using Mustache = kainjow::mustache::mustache;
@@ -70,7 +71,7 @@ CodeGenerator::~CodeGenerator() {
 }
 
 void CodeGenerator::Init() {
-  std::filesystem::path k_meta_root_path{__META_TEMP_PATH__};
+  std::filesystem::path k_meta_root_path{ArgConfig::Instance().template_path};
   uint32_t count = kTempConfigList.size();
   m_temp_list_.resize(count);
   for (int i = 0; i < count; i++) {
@@ -238,7 +239,7 @@ void CodeGenerator::GenFileByMetaStructList(const std::string& tempName,
   std::unordered_set<std::string> includeFiles;
   for (auto& pMetaStruct : metaStructList) {
     metaTypeList.push_back(metaStructDataMap_.at(pMetaStruct));
-    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, __SOURCE_PATH__));
+    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, ArgConfig::Instance().project_path));
   }
   data.set("meta_type_list", metaTypeList);
   MustacheData includeFileList = MustacheData::type::list;
@@ -261,22 +262,24 @@ void CodeGenerator::GenFile(const std::string& temp_name,
   std::string out_file_name = file_name + temp_config.out_file_name;
   std::string file_path;
 
+  std::string output_path = ArgConfig::Instance().output_path;
+
   TempType temp_type = override_type != TempType::NONE ? override_type : temp_config.type;
   switch (temp_type) {
     case TempType::SERIALIZATION:
-      if (!fs::exists(__GENERATED_CODE_PATH__ "/serialization/"))
-        fs::create_directories(__GENERATED_CODE_PATH__ "/serialization/");
-      file_path = __GENERATED_CODE_PATH__ "/serialization/" + out_file_name;
+      if (!fs::exists(output_path + "/serialization/"))
+        fs::create_directories(output_path + "/serialization/");
+      file_path = output_path + "/serialization/" + out_file_name;
       break;
     case TempType::EDITOR_UI:
-      if (!fs::exists(__GENERATED_CODE_PATH__ "/editor_ui/"))
-        fs::create_directories(__GENERATED_CODE_PATH__ "/editor_ui/");
-      file_path = __GENERATED_CODE_PATH__ "/editor_ui/" + out_file_name;
+      if (!fs::exists(output_path + "/editor_ui/"))
+        fs::create_directories(output_path + "/editor_ui/");
+      file_path = output_path + "/editor_ui/" + out_file_name;
       break;
     case TempType::REFLECTION:
-      if (!fs::exists(__GENERATED_CODE_PATH__ "/reflection/"))
-        fs::create_directories(__GENERATED_CODE_PATH__ "/reflection/");
-      file_path = __GENERATED_CODE_PATH__ "/reflection/" + out_file_name;
+      if (!fs::exists(output_path + "/reflection/"))
+        fs::create_directories(output_path + "/reflection/");
+      file_path = output_path + "/reflection/" + out_file_name;
       break;
     case TempType::NONE:
       break;

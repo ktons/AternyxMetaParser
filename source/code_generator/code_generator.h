@@ -33,7 +33,6 @@ class CodeGenerator {
   std::vector<std::pair<std::string, std::vector<MetaStruct*>>> metaStructGroups_;
   std::unordered_map<MetaStruct*, kainjow::mustache::data> metaStructDataMap_;
 
-  const std::filesystem::path k_source_path_ = {__SOURCE_PATH__};
   std::vector<MetaStruct*>& TryGetMetaStructGroup(const std::string& key);
   void InitMetaStructGroup();
 

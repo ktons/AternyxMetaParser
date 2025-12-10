@@ -1,22 +1,17 @@
 ﻿// reference: https://github.com/AustinBrunkhorst/CPP-Reflection
 
-#include "code_generator/code_generator.h"
-#include "parser/parser.h"
+#include <iostream>
 
-namespace mustache = kainjow::mustache;
+#include "code_generator/code_generator.h"
+#include "config/arg_config.h"
+#include "parser/parser.h"
 
 // note: argv 0 is this exe
 int main(int argc, char* argv[]) {
-  if (argc < 3 || argv[1] == nullptr || argv[2] == nullptr) {
+  if (!ArgConfig::Instance().ParseArgs(argc, argv))
     return -1;
-  }
-  char* main_source_file = argv[1];
-
-  std::vector<std::string> included_paths;
-  for (int i = 2; i < argc; i++) {
-    included_paths.emplace_back(argv[i]);
-  }
-  Aternyx::MetaParser parser{main_source_file, included_paths};
+  // ArgConfig::Instance().DebugInfo();
+  Aternyx::MetaParser parser{ArgConfig::Instance().source_file, ArgConfig::Instance().include_paths};
   parser.BuildCursor();
   // parser.GetAstTree().DebugInfo();
   Aternyx::CodeGenerator generator;
