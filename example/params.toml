@@ -1,0 +1,2 @@
+[parserParams]
+include_paths = ["example", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/"]

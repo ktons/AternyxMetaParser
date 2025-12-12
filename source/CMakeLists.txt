@@ -15,6 +15,8 @@ target_link_libraries(${TARGET_NAME} PRIVATE libclang)
 
 target_link_libraries(${TARGET_NAME} PRIVATE argparse)
 
+target_link_libraries(${TARGET_NAME} PRIVATE toml)
+
 target_include_directories(${TARGET_NAME}
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PRIVATE ${CMAKE_BINARY_DIR}
