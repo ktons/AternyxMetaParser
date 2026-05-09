@@ -39,4 +39,11 @@ else()
 endif()
 
 # Register tests
-add_test(NAME AternyxParserTests COMMAND ${TEST_TARGET})
+# add_test(NAME AternyxParserTests COMMAND ${TEST_TARGET})
+include(GoogleTest)
+gtest_discover_tests(${TEST_TARGET}
+  DISCOVERY_TIMEOUT 60
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}   # 让测试在仓库根目录执行，能找到 example/Template
+  PROPERTIES
+    TIMEOUT 10
+)
