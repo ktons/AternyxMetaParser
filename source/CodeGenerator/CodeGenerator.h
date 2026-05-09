@@ -4,9 +4,10 @@
 #include <mustache.hpp>
 #include <unordered_map>
 
-#include "parser/meta_info.h"
+#include "Parser/MetaInfo.h"
 
 namespace Aternyx {
+
 enum class TempType {
   REFLECTION,
   SERIALIZATION,
@@ -24,12 +25,12 @@ class CodeGenerator {
 
  private:
   struct Impl;
-  Impl* p_impl_;
+  std::unique_ptr<Impl> impl_;
 
-  std::unordered_map<std::string, int> m_temp_map_;
-  std::vector<kainjow::mustache::mustache> m_temp_list_;
-  std::vector<std::string> m_serialization_heads_;
-  AstTree* mAstTree_;
+  std::unordered_map<std::string, int> tempMap_;
+  std::vector<kainjow::mustache::mustache> tempList_;
+  std::vector<std::string> serializationHeads_;
+  AstTree* astTree_{nullptr};
   std::vector<std::pair<std::string, std::vector<MetaStruct*>>> metaStructGroups_;
   std::unordered_map<MetaStruct*, kainjow::mustache::data> metaStructDataMap_;
 
@@ -43,10 +44,10 @@ class CodeGenerator {
   void GenFileByMetaStructList(const std::string& tempName,
                                const std::string& fileName,
                                const std::vector<MetaStruct*>& metaStructList);
-  void GenFile(const std::string& temp_name,
-               const std::string& file_name,
+  void GenFile(const std::string& tempName,
+               const std::string& fileName,
                const kainjow::mustache::data& data,
-               TempType override_type = TempType::NONE);
+               TempType overrideType = TempType::NONE);
 
   // serialization
   void GenEnumMetaFile();

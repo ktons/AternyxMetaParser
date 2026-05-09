@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-Project(Aternyx VERSION 1.0)
+Project(AternyxMetaParser VERSION 1.0)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -15,3 +15,8 @@ endfunction()
 add_subdirectory(3rdparty)
 
 add_subdirectory(source)
+
+include(CTest)
+if (BUILD_TESTING)
+  add_subdirectory(test)
+endif()

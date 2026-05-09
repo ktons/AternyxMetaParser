@@ -7,21 +7,21 @@
 // Fields are populated by `Parse(...)` using `argparse`.
 struct ArgConfig {
   // Path to the root of the project being parsed. Optional.
-  std::string project_path;
+  std::string projectPath_;
 
   // Path to the template directory used for code generation. Optional.
-  std::string template_path;
+  std::string templatePath_;
 
-  std::string output_path;
+  std::string outputPath_;
 
   // Input source file to parse. This is expected to be a positional
   // argument and typically required.
-  std::string source_file;
+  std::string sourceFile_;
 
-  std::vector<std::string> include_paths;
+  std::vector<std::string> includePaths_;
   // Optional path to a TOML config file. If provided, the TOML file
   // values will be used to override fields in this struct.
-  std::string toml_path;
+  std::string tomlPath_;
 
   // Returns the singleton instance of ArgConfig. This allows convenient
   // global access to parsed options. The instance is lazily constructed.
@@ -47,5 +47,5 @@ struct ArgConfig {
   // Parse and apply configuration from a TOML file. Returns true on
   // success and false on error. Values present in the TOML file will
   // overwrite the corresponding members of this object.
-  bool ParseTomlConfig(const char* toml_config_path);
+  bool ParseTomlConfig(const char* tomlConfigPath);
 };

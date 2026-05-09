@@ -1,4 +1,4 @@
-#include "code_generator/code_generator.h"
+#include "CodeGenerator/CodeGenerator.h"
 
 #include <algorithm>
 #include <clang-c/Index.h>
@@ -8,8 +8,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "config/arg_config.h"
-#include "utils/utils.h"
+#include "Config/ArgConfig.h"
+#include "Utils/Utils.h"
 
 using Mustache = kainjow::mustache::mustache;
 using MustacheData = kainjow::mustache::data;
@@ -28,8 +28,8 @@ enum class Priority {
 struct TempInfo {
   std::string name;
   TempType type;
-  Priority priority_type;
-  std::string out_file_name;
+  Priority priorityType;
+  std::string outFileName;
 };
 
 static const std::vector<TempInfo> kTempConfigList = {
@@ -58,48 +58,42 @@ static const std::unordered_map<TempType, std::vector<std::string>> kPreIncludeF
 };
 
 struct CodeGenerator::Impl {
-  std::unordered_set<std::string> temp_type_a_list;
-  std::unordered_map<TempType, std::vector<std::pair<Priority, std::string>>> generated_file_map;
+  std::unordered_set<std::string> tempTypeAList;
+  std::unordered_map<TempType, std::vector<std::pair<Priority, std::string>>> generatedFileMap;
 };
 
-CodeGenerator::CodeGenerator() {
-  p_impl_ = new Impl();
-}
+CodeGenerator::CodeGenerator() : impl_(std::make_unique<Impl>()) {}
 
-CodeGenerator::~CodeGenerator() {
-  delete p_impl_;
-}
+CodeGenerator::~CodeGenerator() = default;
 
 void CodeGenerator::Init() {
-  std::filesystem::path k_meta_root_path{ArgConfig::Instance().template_path};
+  std::filesystem::path metaRootPath{ArgConfig::Instance().templatePath_};
   uint32_t count = kTempConfigList.size();
-  m_temp_list_.resize(count);
+  tempList_.resize(count);
   for (int i = 0; i < count; i++) {
-    auto& temp_name = kTempConfigList[i].name;
-    m_temp_map_[temp_name] = -1;
-    // load template file
-    fs::path file_path{k_meta_root_path / (temp_name + ".mustache")};
-    if (!std::filesystem::exists(file_path)) {
+    auto& tempName = kTempConfigList[i].name;
+    tempMap_[tempName] = -1;
+    fs::path filePath{metaRootPath / (tempName + ".mustache")};
+    if (!std::filesystem::exists(filePath)) {
       continue;
     }
-    std::ifstream ifs{file_path, std::ios::binary};
+    std::ifstream ifs{filePath, std::ios::binary};
     std::stringstream buffer;
     buffer << ifs.rdbuf();
     ifs.close();
-    // create and validate template
-    m_temp_list_[i] = kainjow::mustache::mustache{buffer.str()};
-    if (!m_temp_list_[i].is_valid()) {
+    tempList_[i] = kainjow::mustache::mustache{buffer.str()};
+    if (!tempList_[i].is_valid()) {
     } else {
-      m_temp_list_[i].set_custom_escape(kainjow::mustache::trim<std::string>);
-      m_temp_map_[temp_name] = i;
-      if (kTempConfigList[i].priority_type == Priority::TYPE_A)
-        p_impl_->temp_type_a_list.insert(temp_name);
+      tempList_[i].set_custom_escape(kainjow::mustache::trim<std::string>);
+      tempMap_[tempName] = i;
+      if (kTempConfigList[i].priorityType == Priority::TYPE_A)
+        impl_->tempTypeAList.insert(tempName);
     }
   }
 }
 
 void CodeGenerator::SetAstTree(AstTree* astTree) {
-  mAstTree_ = astTree;
+  astTree_ = astTree;
   InitMetaStructGroup();
 }
 
@@ -113,7 +107,7 @@ std::vector<MetaStruct*>& CodeGenerator::TryGetMetaStructGroup(const std::string
 }
 
 void CodeGenerator::InitMetaStructGroup() {
-  for (auto& metaStruct : mAstTree_->metaStructList) {
+  for (auto& metaStruct : astTree_->metaStructList) {
     MetaStruct* pMetaStruct = &metaStruct;
     auto& group = TryGetMetaStructGroup(metaStruct.sourceFilePath);
     group.push_back(pMetaStruct);
@@ -133,7 +127,7 @@ void CodeGenerator::CreateMetaStructData(Aternyx::MetaStruct* metaStruct) {
   size_t size = metaStruct->derivedTypeIndex.size();
   for (size_t i = 0; i < size; i++) {
     auto index = metaStruct->derivedTypeIndex.at(i);
-    auto& derivedMeta = mAstTree_->GetMetaStruct(index);
+    auto& derivedMeta = astTree_->GetMetaStruct(index);
     MustacheData itemData;
     itemData.set("child_is_struct", derivedMeta.kind == CXCursor_StructDecl);
     itemData.set("child_namespace", derivedMeta.namespaceName);
@@ -171,11 +165,11 @@ void CodeGenerator::Run() {
       continue;
   }
   {
-    for (const auto& tempName : p_impl_->temp_type_a_list) {
-      if (m_temp_map_.at(tempName) == -1)
+    for (const auto& tempName : impl_->tempTypeAList) {
+      if (tempMap_.at(tempName) == -1)
         continue;
       std::vector<MetaStruct*> matchedMetaStructList;
-      for (auto& metaStruct : mAstTree_->metaStructList) {
+      for (auto& metaStruct : astTree_->metaStructList) {
         if (GetAttribute(metaStruct.attributes, tempName))
           matchedMetaStructList.push_back(&metaStruct);
       }
@@ -187,11 +181,11 @@ void CodeGenerator::Run() {
     std::string filePath;
     std::string fileName;
     std::unordered_map<std::string, std::vector<MetaStruct*>> attributeMetaStructGroup;
-    for (auto& metaStruct : mAstTree_->metaStructList) {
+    for (auto& metaStruct : astTree_->metaStructList) {
       if (filePath != metaStruct.sourceFilePath) {
         for (auto& [attribute, metaStructList] : attributeMetaStructGroup) {
-          if (p_impl_->temp_type_a_list.contains(attribute) || !m_temp_map_.contains(attribute) ||
-              m_temp_map_.at(attribute) == -1)
+          if (impl_->tempTypeAList.contains(attribute) || !tempMap_.contains(attribute) ||
+              tempMap_.at(attribute) == -1)
             continue;
           GenFileByMetaStructList(attribute, fileName, metaStructList);
         }
@@ -204,15 +198,15 @@ void CodeGenerator::Run() {
       }
     }
     for (auto& [attribute, metaStructList] : attributeMetaStructGroup) {
-      if (p_impl_->temp_type_a_list.contains(attribute) || !m_temp_map_.contains(attribute) ||
-          m_temp_map_.at(attribute) == -1)
+      if (impl_->tempTypeAList.contains(attribute) || !tempMap_.contains(attribute) ||
+          tempMap_.at(attribute) == -1)
         continue;
       GenFileByMetaStructList(attribute, fileName, metaStructList);
     }
     attributeMetaStructGroup.clear();
   }
   {
-    for (auto& [tempType, generatedFiles] : p_impl_->generated_file_map) {
+    for (auto& [tempType, generatedFiles] : impl_->generatedFileMap) {
       if (generatedFiles.empty())
         continue;
       MustacheData data;
@@ -239,7 +233,7 @@ void CodeGenerator::GenFileByMetaStructList(const std::string& tempName,
   std::unordered_set<std::string> includeFiles;
   for (auto& pMetaStruct : metaStructList) {
     metaTypeList.push_back(metaStructDataMap_.at(pMetaStruct));
-    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, ArgConfig::Instance().project_path));
+    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, ArgConfig::Instance().projectPath_));
   }
   data.set("meta_type_list", metaTypeList);
   MustacheData includeFileList = MustacheData::type::list;
@@ -249,46 +243,46 @@ void CodeGenerator::GenFileByMetaStructList(const std::string& tempName,
   GenFile(tempName, fileName, data);
 }
 
-void CodeGenerator::GenFile(const std::string& temp_name,
-                            const std::string& file_name,
+void CodeGenerator::GenFile(const std::string& tempName,
+                            const std::string& fileName,
                             const kainjow::mustache::data& data,
-                            TempType override_type) {
-  auto temp_index = m_temp_map_.at(temp_name);
-  if (temp_index == -1) {
+                            TempType overrideType) {
+  auto tempIndex = tempMap_.at(tempName);
+  if (tempIndex == -1) {
     return;
   }
-  auto& temp_config = kTempConfigList[temp_index];
-  auto result = m_temp_list_.at(temp_index).render(data);
-  std::string out_file_name = file_name + temp_config.out_file_name;
-  std::string file_path;
+  auto& tempConfig = kTempConfigList[tempIndex];
+  auto result = tempList_.at(tempIndex).render(data);
+  std::string outFileName = fileName + tempConfig.outFileName;
+  std::string filePath;
 
-  std::string output_path = ArgConfig::Instance().output_path;
+  std::string outputPath = ArgConfig::Instance().outputPath_;
 
-  TempType temp_type = override_type != TempType::NONE ? override_type : temp_config.type;
-  switch (temp_type) {
+  TempType tempType = overrideType != TempType::NONE ? overrideType : tempConfig.type;
+  switch (tempType) {
     case TempType::SERIALIZATION:
-      if (!fs::exists(output_path + "/serialization/"))
-        fs::create_directories(output_path + "/serialization/");
-      file_path = output_path + "/serialization/" + out_file_name;
+      if (!fs::exists(outputPath + "/serialization/"))
+        fs::create_directories(outputPath + "/serialization/");
+      filePath = outputPath + "/serialization/" + outFileName;
       break;
     case TempType::EDITOR_UI:
-      if (!fs::exists(output_path + "/editor_ui/"))
-        fs::create_directories(output_path + "/editor_ui/");
-      file_path = output_path + "/editor_ui/" + out_file_name;
+      if (!fs::exists(outputPath + "/editor_ui/"))
+        fs::create_directories(outputPath + "/editor_ui/");
+      filePath = outputPath + "/editor_ui/" + outFileName;
       break;
     case TempType::REFLECTION:
-      if (!fs::exists(output_path + "/reflection/"))
-        fs::create_directories(output_path + "/reflection/");
-      file_path = output_path + "/reflection/" + out_file_name;
+      if (!fs::exists(outputPath + "/reflection/"))
+        fs::create_directories(outputPath + "/reflection/");
+      filePath = outputPath + "/reflection/" + outFileName;
       break;
     case TempType::NONE:
       break;
   }
 
-  if (temp_config.type != TempType::NONE)
-    p_impl_->generated_file_map[temp_type].push_back({temp_config.priority_type, out_file_name});
+  if (tempConfig.type != TempType::NONE)
+    impl_->generatedFileMap[tempType].push_back({tempConfig.priorityType, outFileName});
 
-  std::ofstream ofs{file_path, std::ios::binary};
+  std::ofstream ofs{filePath, std::ios::binary};
   ofs << result << std::endl;
   ofs.flush();
   ofs.close();
