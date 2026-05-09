@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <clang-c/Index.h>
 #include <string>
@@ -24,5 +24,5 @@ class CursorType {
   bool IsConst(void) const;
 
  private:
-  CXType m_handle;
+  CXType handle_;
 };

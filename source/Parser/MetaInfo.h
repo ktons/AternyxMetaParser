@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 namespace Aternyx {
+
 enum class MetaFieldTypeInfo {
   Property,
   Function,
@@ -52,4 +54,5 @@ struct AstTree {
   void InnerGetTypeName(const std::string& typeName, std::string& finalTypeName);
   std::string GetFullTypeName(const std::string& typeName);
 };
+
 }  // namespace Aternyx

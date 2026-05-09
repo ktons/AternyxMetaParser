@@ -1,9 +1,8 @@
-
 #pragma once
 #include <memory>
 
-#include "cursor/cursor.h"
-#include "parser/meta_info.h"
+#include "Cursor/Cursor.h"
+#include "Parser/MetaInfo.h"
 
 namespace Aternyx {
 class MetaParser {

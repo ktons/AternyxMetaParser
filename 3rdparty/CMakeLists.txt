@@ -1,19 +1,25 @@
 # 3rdparty/CMakeLists.txt
 
 # libclang
-add_library(libclang SHARED IMPORTED GLOBAL)
-if(WIN32)
+if(UNIX AND NOT APPLE)
+    add_library(libclang SHARED IMPORTED GLOBAL)
     set_target_properties(libclang PROPERTIES
-        IMPORTED_IMPLIB "${CMAKE_CURRENT_LIST_DIR}/LLVM/lib/x64/libclang.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/LLVM/include"
-    )
-elseif(APPLE)
-    set_target_properties(libclang PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/LLVM/bin/macOS/libclang.dylib"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/LLVM/include"
+        IMPORTED_LOCATION "/usr/lib/llvm-18/lib/libclang-18.so"
+        INTERFACE_INCLUDE_DIRECTORIES "/usr/lib/llvm-18/include"
     )
 else()
-    message(FATAL_ERROR "Unsupported platform for imported libclang.\nPlease configure LLVM paths in '3rdparty/CMakeLists.txt' or add platform-specific handling for your OS.")
+    add_library(libclang SHARED IMPORTED GLOBAL)
+    if(WIN32)
+        set_target_properties(libclang PROPERTIES
+            IMPORTED_IMPLIB "${CMAKE_CURRENT_LIST_DIR}/LLVM/lib/x64/libclang.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/LLVM/include"
+        )
+    elseif(APPLE)
+        set_target_properties(libclang PROPERTIES
+            IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/LLVM/bin/macOS/libclang.dylib"
+            INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/LLVM/include"
+        )
+    endif()
 endif()
 
 # Mustache (header-only)
