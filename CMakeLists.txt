@@ -15,3 +15,5 @@ endfunction()
 add_subdirectory(3rdparty)
 
 add_subdirectory(source)
+
+add_subdirectory(test)

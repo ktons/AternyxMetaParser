@@ -21,4 +21,4 @@ temp/
 CMakeFiles/
 .cache/
 .cursor/
-test_detail.xml
+test_detail.xml_Generated/
