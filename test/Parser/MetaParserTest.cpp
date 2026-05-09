@@ -7,6 +7,16 @@
 
 namespace fs = std::filesystem;
 
+// Cross-platform temp file helper
+static fs::path CreateTempFile(const std::string& content) {
+  static int counter = 0;
+  fs::path path = fs::temp_directory_path() / ("empty_test_" + std::to_string(++counter) + ".cpp");
+  std::ofstream ofs(path);
+  ofs << content;
+  ofs.close();
+  return path;
+}
+
 class MetaParserTest : public ::testing::Test {
  protected:
   std::string project_root_;
@@ -113,23 +123,14 @@ TEST_F(MetaParserTest, VerifyDataBlockFields) {
 }
 
 TEST_F(MetaParserTest, ParseEmptyFile) {
-  char tmpName[] = "/tmp/empty_test_XXXXXX";
-  int fd = mkstemp(tmpName);
-  ASSERT_NE(fd, -1);
-  close(fd);
-  std::string finalPath(tmpName);
-
-  {
-    std::ofstream ofs(finalPath);
-    ofs << "int main() { return 0; }";
-  }
+  fs::path tmpPath = CreateTempFile("int main() { return 0; }");
 
   std::vector<std::string> include_paths;
-  Aternyx::MetaParser parser(finalPath, include_paths);
+  Aternyx::MetaParser parser(tmpPath.string(), include_paths);
   EXPECT_NO_THROW(parser.BuildCursor());
   auto& ast = parser.GetAstTree();
 
   EXPECT_TRUE(ast.metaStructList.empty());
 
-  fs::remove(finalPath);
+  fs::remove(tmpPath);
 }

@@ -1,8 +1,23 @@
 #include <clang-c/Index.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+
 #include "Cursor/Cursor.h"
 #include "Cursor/CursorType.h"
+
+namespace fs = std::filesystem;
+
+// Cross-platform temp file helper
+static fs::path CreateTempFile(const std::string& content) {
+  static int counter = 0;
+  fs::path path = fs::temp_directory_path() / ("test_trivial_" + std::to_string(++counter) + ".cpp");
+  std::ofstream ofs(path);
+  ofs << content;
+  ofs.close();
+  return path;
+}
 
 // Test Cursor construction from a null handle
 TEST(CursorTest, NullHandle) {
@@ -29,19 +44,13 @@ TEST(LibclangTest, CreateIndex) {
 
 // Test parsing a trivial source file via TU
 TEST(LibclangTest, ParseTrivialSource) {
-  char tmpPath[] = "/tmp/test_trivial_XXXXXX";
-  int fd = mkstemp(tmpPath);
-  ASSERT_NE(fd, -1);
-  FILE* f = fdopen(fd, "w");
-  ASSERT_NE(f, nullptr);
-  fputs("int x = 42;", f);
-  fclose(f);
+  fs::path tmpPath = CreateTempFile("int x = 42;");
 
   CXIndex index = clang_createIndex(true, false);
 
   const char* args[] = {"-x", "c++", "-std=c++11"};
   auto tu = clang_createTranslationUnitFromSourceFile(
-      index, tmpPath, 3, args, 0, nullptr);
+      index, tmpPath.string().c_str(), 3, args, 0, nullptr);
   ASSERT_NE(tu, nullptr);
 
   CXCursor rootCursor = clang_getTranslationUnitCursor(tu);
@@ -53,5 +62,5 @@ TEST(LibclangTest, ParseTrivialSource) {
 
   clang_disposeTranslationUnit(tu);
   clang_disposeIndex(index);
-  unlink(tmpPath);
+  fs::remove(tmpPath);
 }
