@@ -21,14 +21,14 @@ void AstTree::DebugInfo() const {
 void MetaField::AddAttributes(const std::string& attributeStr) {
   auto splitStr = Aternyx::StringLib::Split(attributeStr, ",");
   for (const auto& str : splitStr) {
-    attributes.emplace_back(str);
+    attributes.emplace_back(Aternyx::StringLib::Trim(str));
   }
 }
 
 void MetaStruct::AddAttributes(const std::string& attributeStr) {
   auto splitStr = Aternyx::StringLib::Split(attributeStr, ",");
   for (const auto& str : splitStr) {
-    attributes.emplace_back(str);
+    attributes.emplace_back(Aternyx::StringLib::Trim(str));
   }
 }
 
@@ -38,8 +38,10 @@ void AstTree::EmplaceBack(Aternyx::MetaStruct&& metaStruct) {
   metaStructMap_[metaStruct.typeName] = index;
   metaStructList.emplace_back(metaStruct);
   if (!metaStruct.baseTypeName.empty()) {
-    size_t baseIndex = metaStructMap_[metaStruct.baseTypeName];
-    metaStructList[baseIndex].derivedTypeIndex.push_back(static_cast<uint32_t>(index));
+    auto baseIt = metaStructMap_.find(metaStruct.baseTypeName);
+    if (baseIt != metaStructMap_.end()) {
+      metaStructList[baseIt->second].derivedTypeIndex.push_back(static_cast<uint32_t>(index));
+    }
   }
 }
 

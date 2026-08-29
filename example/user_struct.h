@@ -9,9 +9,10 @@ CLASS(ClassA, Serialization) {
   int k;
   std::string name;
   std::vector<float> lengthList_;
+  META(Runtime) int scratch;
 };
 
-STRUCT(DataBlock, EditorUI) {
+STRUCT(DataBlock, Serialization, EditorUI) {
   int a;
   int b;
   std::string name;

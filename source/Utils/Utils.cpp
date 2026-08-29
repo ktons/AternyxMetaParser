@@ -1,6 +1,7 @@
 #include "Utils/Utils.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <sstream>
 
@@ -53,5 +54,35 @@ std::string GetRelativePath(const std::string& path, const std::string& rootPath
   fs::path p(path);
   fs::path r(rootPath);
   return fs::relative(p, r).string();
+}
+
+bool EqualsNoCase(const std::string& lhs, const std::string& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < lhs.size(); ++i) {
+    if (std::tolower(static_cast<unsigned char>(lhs[i])) != std::tolower(static_cast<unsigned char>(rhs[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::string ToLower(const std::string& input) {
+  std::string result = input;
+  std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
+  return result;
+}
+
+std::string Trim(const std::string& input) {
+  size_t begin = 0;
+  size_t end = input.size();
+  while (begin < end && std::isspace(static_cast<unsigned char>(input[begin]))) {
+    ++begin;
+  }
+  while (end > begin && std::isspace(static_cast<unsigned char>(input[end - 1]))) {
+    --end;
+  }
+  return input.substr(begin, end - begin);
 }
 }  // namespace Aternyx::StringLib

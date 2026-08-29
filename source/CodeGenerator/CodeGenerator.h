@@ -29,7 +29,6 @@ class CodeGenerator {
 
   std::unordered_map<std::string, int> tempMap_;
   std::vector<kainjow::mustache::mustache> tempList_;
-  std::vector<std::string> serializationHeads_;
   AstTree* astTree_{nullptr};
   std::vector<std::pair<std::string, std::vector<MetaStruct*>>> metaStructGroups_;
   std::unordered_map<MetaStruct*, kainjow::mustache::data> metaStructDataMap_;
@@ -48,11 +47,5 @@ class CodeGenerator {
                const std::string& fileName,
                const kainjow::mustache::data& data,
                TempType overrideType = TempType::NONE);
-
-  // serialization
-  void GenEnumMetaFile();
-  void GenTypeSerializationFile(const std::string& sourcePath, const std::vector<MetaStruct*>& metaStructGroup);
-  void GenObjectHandleSerialization(const MetaStruct& baseMeta);
-  void GenIncludedHeadFile();
 };
 }  // namespace Aternyx

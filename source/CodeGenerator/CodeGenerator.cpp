@@ -72,7 +72,7 @@ void CodeGenerator::Init() {
   tempList_.resize(count);
   for (int i = 0; i < count; i++) {
     auto& tempName = kTempConfigList[i].name;
-    tempMap_[tempName] = -1;
+    tempMap_[StringLib::ToLower(tempName)] = -1;
     fs::path filePath{metaRootPath / (tempName + ".mustache")};
     if (!std::filesystem::exists(filePath)) {
       continue;
@@ -85,9 +85,9 @@ void CodeGenerator::Init() {
     if (!tempList_[i].is_valid()) {
     } else {
       tempList_[i].set_custom_escape(kainjow::mustache::trim<std::string>);
-      tempMap_[tempName] = i;
+      tempMap_[StringLib::ToLower(tempName)] = i;
       if (kTempConfigList[i].priorityType == Priority::TYPE_A)
-        impl_->tempTypeAList.insert(tempName);
+        impl_->tempTypeAList.insert(StringLib::ToLower(tempName));
     }
   }
 }
@@ -160,10 +160,6 @@ void CodeGenerator::CreateMetaStructData(Aternyx::MetaStruct* metaStruct) {
 }
 
 void CodeGenerator::Run() {
-  for (auto& [fileName, metaStructList] : metaStructGroups_) {
-    if (metaStructList.empty())
-      continue;
-  }
   {
     for (const auto& tempName : impl_->tempTypeAList) {
       if (tempMap_.at(tempName) == -1)
@@ -184,8 +180,8 @@ void CodeGenerator::Run() {
     for (auto& metaStruct : astTree_->metaStructList) {
       if (filePath != metaStruct.sourceFilePath) {
         for (auto& [attribute, metaStructList] : attributeMetaStructGroup) {
-          if (impl_->tempTypeAList.contains(attribute) || !tempMap_.contains(attribute) ||
-              tempMap_.at(attribute) == -1)
+          if (!tempMap_.contains(attribute) || tempMap_.at(attribute) == -1 ||
+              impl_->tempTypeAList.contains(attribute))
             continue;
           GenFileByMetaStructList(attribute, fileName, metaStructList);
         }
@@ -194,12 +190,11 @@ void CodeGenerator::Run() {
         fileName = fs::path{filePath}.stem().string();
       }
       for (auto& attribute : metaStruct.attributes) {
-        attributeMetaStructGroup[attribute].push_back(&metaStruct);
+        attributeMetaStructGroup[StringLib::ToLower(attribute)].push_back(&metaStruct);
       }
     }
     for (auto& [attribute, metaStructList] : attributeMetaStructGroup) {
-      if (impl_->tempTypeAList.contains(attribute) || !tempMap_.contains(attribute) ||
-          tempMap_.at(attribute) == -1)
+      if (!tempMap_.contains(attribute) || tempMap_.at(attribute) == -1 || impl_->tempTypeAList.contains(attribute))
         continue;
       GenFileByMetaStructList(attribute, fileName, metaStructList);
     }
@@ -247,7 +242,7 @@ void CodeGenerator::GenFile(const std::string& tempName,
                             const std::string& fileName,
                             const kainjow::mustache::data& data,
                             TempType overrideType) {
-  auto tempIndex = tempMap_.at(tempName);
+  auto tempIndex = tempMap_.at(StringLib::ToLower(tempName));
   if (tempIndex == -1) {
     return;
   }
@@ -289,6 +284,8 @@ void CodeGenerator::GenFile(const std::string& tempName,
 }
 
 bool CodeGenerator::GetAttribute(const std::vector<std::string>& attributes, const std::string& attribute) {
-  return std::find(attributes.begin(), attributes.end(), attribute) != attributes.end();
+  return std::find_if(attributes.begin(), attributes.end(),
+                      [&attribute](const std::string& item) { return StringLib::EqualsNoCase(item, attribute); }) !=
+         attributes.end();
 }
 }  // namespace Aternyx

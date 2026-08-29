@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 #include "CodeGenerator/CodeGenerator.h"
 #include "Config/ArgConfig.h"
@@ -17,6 +18,13 @@ static void ResetArgConfig() {
   config.outputPath_ = "_generated";
   config.sourceFile_ = "";
   config.includePaths_.clear();
+}
+
+static std::string ReadFileContent(const std::string& path) {
+  std::ifstream ifs(path);
+  std::stringstream buffer;
+  buffer << ifs.rdbuf();
+  return buffer.str();
 }
 
 class CodeGeneratorTest : public ::testing::Test {
@@ -124,4 +132,55 @@ TEST_F(CodeGeneratorTest, VerifyGeneratedFilesExist) {
   }
   EXPECT_GE(h_file_count, 2)
       << "Expected at least 2 .h files (all_include + user_struct), found " << h_file_count;
+}
+
+// Golden content check: every annotated field of the example types must appear
+// in the generated yaml-cpp convert specializations with its exact name and type.
+TEST_F(CodeGeneratorTest, VerifySerializationContent) {
+  std::vector<std::string> include_paths = {example_path_};
+  Aternyx::MetaParser parser(example_main_, include_paths);
+  parser.BuildCursor();
+  auto& ast = parser.GetAstTree();
+  ASSERT_FALSE(ast.metaStructList.empty());
+
+  Aternyx::CodeGenerator generator;
+  generator.Init();
+  generator.SetAstTree(&ast);
+  generator.Run();
+
+  std::string serialization_file =
+      (fs::path(output_path_) / "serialization" / "user_struct.gen.h").string();
+  ASSERT_TRUE(fs::exists(serialization_file)) << "serialization/user_struct.gen.h was not generated";
+  const std::string content = ReadFileContent(serialization_file);
+
+  EXPECT_NE(content.find("convert<UserStruct::ClassA>"), std::string::npos)
+      << "ClassA specialization missing, typeName spelling was not namespace-qualified";
+  EXPECT_NE(content.find("convert<UserStruct::DataBlock>"), std::string::npos)
+      << "DataBlock specialization missing (last annotated type lost?)";
+
+  // ClassA fields
+  EXPECT_NE(content.find("node[\"k\"]"), std::string::npos);
+  EXPECT_NE(content.find("node[\"name\"]"), std::string::npos);
+  EXPECT_NE(content.find("node[\"lengthList_\"]"), std::string::npos);
+  // DataBlock fields
+  EXPECT_NE(content.find("node[\"a\"]"), std::string::npos);
+  EXPECT_NE(content.find("node[\"b\"]"), std::string::npos);
+
+  // decode type mapping
+  EXPECT_NE(content.find("as<int>()"), std::string::npos);
+  EXPECT_NE(content.find("as<std::string>()"), std::string::npos);
+  EXPECT_NE(content.find("std::vector<float>"), std::string::npos);
+
+  // Runtime-marked field must be excluded from serialization
+  EXPECT_EQ(content.find("node[\"scratch\"]"), std::string::npos)
+      << "Runtime field 'scratch' must not be serialized";
+
+  // Multi-attribute annotation "Serialization, EditorUI" must also hit the
+  // EditorUi template (case-insensitive, whitespace-trimmed attribute match).
+  std::string editor_ui_file = (fs::path(output_path_) / "editor_ui" / "user_struct.gen.h").string();
+  ASSERT_TRUE(fs::exists(editor_ui_file)) << "editor_ui/user_struct.gen.h was not generated";
+  const std::string ui_content = ReadFileContent(editor_ui_file);
+  EXPECT_NE(ui_content.find("ImGuiUtilityInternal<UserStruct::DataBlock>"), std::string::npos);
+  EXPECT_NE(ui_content.find("OnEditGui(\"a\", v.a)"), std::string::npos);
+  EXPECT_NE(ui_content.find("OnEditGui(\"name\", v.name)"), std::string::npos);
 }

@@ -6,15 +6,13 @@
 namespace Aternyx {
 
 struct MetaParser::Impl {
-  int buildMode_{0};
-  std::string currentNamespace_{""};
-  MetaStruct tempStruct_;
-  std::string sourcePath_;
-  AstTree astTree_;
-  std::vector<std::string> arguments_ = {
+  std::vector<std::string> namespaceStack;
+  std::string sourcePath;
+  AstTree astTree;
+  std::vector<std::string> arguments = {
       "-x",
       "c++",
-      "-std=c++11",
+      "-std=c++17",
       "-D__REFLECTION_PARSER__",
       "-DNDEBUG",
       "-D__clang__",
@@ -25,159 +23,153 @@ struct MetaParser::Impl {
       "-o clangLog.txt",
   };
 
-  void VisitCursor(MetaParser* self, const Cursor& cursor, int deep);
-  void BuildAst(MetaParser* self, const Cursor& cursor);
+  void VisitChildren(const Cursor& cursor);
+  void VisitNamespace(const Cursor& cursor);
+  void VisitTypeDecl(const Cursor& cursor, int kind);
+  std::string CurrentNamespace() const;
   void DebugAst();
-  void EnqueueMetaStruct();
 };
 
 MetaParser::MetaParser(const std::string& mainSourceFile, const std::vector<std::string>& includePath)
     : impl_(std::make_unique<Impl>()) {
-  impl_->sourcePath_ = mainSourceFile;
-  impl_->arguments_.push_back(mainSourceFile);
-
+  impl_->sourcePath = mainSourceFile;
   for (const auto& path : includePath) {
-    impl_->arguments_.push_back("-I" + path);
+    std::string argument = "-I" + path;
+    impl_->arguments.push_back(argument);
   }
 }
 
 MetaParser::~MetaParser() = default;
 
-AstTree& MetaParser::GetAstTree() {
-  return impl_->astTree_;
-}
-
 void MetaParser::BuildCursor() {
-  auto index = clang_createIndex(false, false);
-  impl_->arguments_.push_back("-w");
-
-  unsigned argc = static_cast<unsigned>(impl_->arguments_.size());
-  const char** argv = new const char*[argc];
-  for (unsigned i = 0; i < argc; ++i) {
-    argv[i] = impl_->arguments_[i].c_str();
+  CXIndex index = clang_createIndex(true, false);
+  std::vector<const char*> arguments;
+  for (const auto& argument : impl_->arguments) {
+    arguments.emplace_back(argument.c_str());
   }
-
-  CXTranslationUnit tu = clang_parseTranslationUnit(index,
-                                                    0,
-                                                    argv,
-                                                    argc,
-                                                    nullptr,
-                                                    0,
-                                                    CXTranslationUnit_None);
-
-  if (tu == nullptr) {
-    std::cerr << "clang_parseTranslationUnit failed" << std::endl;
-    delete[] argv;
-    return;
+  auto translationUnit = clang_createTranslationUnitFromSourceFile(
+      index, impl_->sourcePath.c_str(), static_cast<int>(arguments.size()), arguments.data(), 0, nullptr);
+  auto cursor = clang_getTranslationUnitCursor(translationUnit);
+  impl_->namespaceStack.clear();
+  impl_->VisitChildren(cursor);
+  if (index) {
+    clang_disposeIndex(index);
   }
-
-  Cursor rootCursor = clang_getTranslationUnitCursor(tu);
-
-  impl_->BuildAst(this, rootCursor);
-
-  clang_disposeTranslationUnit(tu);
-  clang_disposeIndex(index);
-  delete[] argv;
+  // impl_->DebugAst();
 }
 
-void MetaParser::Impl::BuildAst(MetaParser* self, const Cursor& cursor) {
-  for (auto child : cursor.GetChildren()) {
-    VisitCursor(self, child, 0);
-  }
+AstTree& MetaParser::GetAstTree() {
+  return impl_->astTree;
 }
 
-void MetaParser::Impl::EnqueueMetaStruct() {
-  if (tempStruct_.fields.empty())
-    return;
-
-  astTree_.EmplaceBack(std::move(tempStruct_));
-  astTree_.RegisterTypeName(tempStruct_.typeName);
-  tempStruct_ = MetaStruct{};
-}
-
-void MetaParser::Impl::VisitCursor(MetaParser* self, const Cursor& cursor, int deep) {
-  if (deep > 20)
-    return;
-
-  if (cursor.GetKind() == CXCursor_UnexposedAttr)
-    return;
-  if (cursor.GetKind() == CXCursor_InclusionDirective)
-    return;
-
-  if (deep > 5)
-    return;
-
-  auto spelling = cursor.GetSpelling();
-  auto kind = cursor.GetKind();
-  auto type = cursor.GetType();
-
-  switch (kind) {
-    case CXCursor_Namespace: {
-      currentNamespace_ = spelling;
-      break;
+void MetaParser::Impl::VisitChildren(const Cursor& cursor) {
+  for (const auto& child : cursor.GetChildren()) {
+    const int kind = static_cast<int>(child.GetKind());
+    switch (kind) {
+      case CXCursor_Namespace:
+        VisitNamespace(child);
+        break;
+      case CXCursor_StructDecl:
+      case CXCursor_ClassDecl:
+      case CXCursor_EnumDecl:
+        VisitTypeDecl(child, kind);
+        break;
+      default:
+        break;
     }
-    case CXCursor_StructDecl:
-    case CXCursor_ClassDecl: {
-      EnqueueMetaStruct();
-      buildMode_ = 1;
-      tempStruct_.kind = kind;
-      tempStruct_.namespaceName = currentNamespace_;
-      tempStruct_.simpleTypeName = spelling;
+  }
+}
 
-      if (currentNamespace_.empty())
-        tempStruct_.typeName = spelling;
-      else
-        tempStruct_.typeName = currentNamespace_ + "::" + spelling;
+void MetaParser::Impl::VisitNamespace(const Cursor& cursor) {
+  namespaceStack.push_back(cursor.GetDisplayName());
+  astTree.currentNamespace = CurrentNamespace();
+  VisitChildren(cursor);
+  namespaceStack.pop_back();
+  astTree.currentNamespace = CurrentNamespace();
+}
 
-      tempStruct_.sourceFilePath = cursor.GetSourceFile();
+std::string MetaParser::Impl::CurrentNamespace() const {
+  std::string joined;
+  for (size_t i = 0; i < namespaceStack.size(); ++i) {
+    if (i > 0) {
+      joined += "::";
+    }
+    joined += namespaceStack[i];
+  }
+  return joined;
+}
 
-      // Parse children (base types, fields, etc.)
-      for (auto child : cursor.GetChildren()) {
-        auto childKind = child.GetKind();
+void MetaParser::Impl::VisitTypeDecl(const Cursor& cursor, int kind) {
+  const std::string typeName = cursor.GetType().GetDisplayName();
+  astTree.RegisterTypeName(typeName);
+  if (!cursor.IsDefinition()) {
+    return;
+  }
 
-        if (childKind == CXCursor_AnnotateAttr) {
-          tempStruct_.AddAttributes(child.GetSpelling());
-        }
-        if (childKind == CXCursor_CXXBaseSpecifier) {
-          tempStruct_.baseTypeName = child.GetType().GetDisplayName();
+  MetaStruct metaStruct;
+  metaStruct.kind = kind;
+  metaStruct.sourceFilePath = cursor.GetSourceFile();
+  metaStruct.typeName = typeName;
+  std::string simpleTypeName = typeName;
+  auto typeSplitIndex = typeName.find_last_of("::");
+  if (typeSplitIndex != std::string::npos) {
+    metaStruct.namespaceName = typeName.substr(0, typeSplitIndex - 1);
+    simpleTypeName = typeName.substr(typeSplitIndex + 1, typeName.size());
+  }
+  metaStruct.simpleTypeName = simpleTypeName;
 
-          for (auto subChild : child.GetChildren()) {
-            VisitCursor(self, subChild, deep + 1);
+  for (const auto& child : cursor.GetChildren()) {
+    const int childKind = static_cast<int>(child.GetKind());
+    switch (childKind) {
+      case CXCursor_AnnotateAttr:
+        metaStruct.AddAttributes(child.GetDisplayName());
+        break;
+      case CXCursor_CXXBaseSpecifier:
+        metaStruct.baseTypeName = astTree.GetTypeName(child.GetType().GetDisplayName());
+        break;
+      case CXCursor_FieldDecl:
+      case CXCursor_CXXMethod: {
+        MetaField field{
+            .name = child.GetDisplayName(),
+            .type = astTree.GetTypeName(child.GetType().GetDisplayName()),
+            .metaFieldType =
+                childKind == CXCursor_CXXMethod ? MetaFieldTypeInfo::Function : MetaFieldTypeInfo::Property,
+            .attributes = {},
+        };
+        for (const auto& attr : child.GetChildren()) {
+          if (attr.GetKind() == CXCursor_AnnotateAttr) {
+            field.AddAttributes(attr.GetDisplayName());
           }
         }
-        if (childKind == CXCursor_FieldDecl) {
-          MetaField field;
-          field.name = child.GetSpelling();
-          field.type = child.GetType().GetDisplayName();
-          field.metaFieldType = MetaFieldTypeInfo::Property;
-
-          tempStruct_.fields.emplace_back(field);
-
-          // Check children of field for attributes
-          for (auto subChild : child.GetChildren()) {
-            if (subChild.GetKind() == CXCursor_AnnotateAttr) {
-              tempStruct_.fields.back().AddAttributes(subChild.GetSpelling());
-            }
-          }
-        }
+        metaStruct.fields.push_back(std::move(field));
+        break;
       }
-
-      buildMode_ = 0;
-      EnqueueMetaStruct();
-      break;
+      default:
+        break;
     }
-    default:
-      break;
   }
 
-  for (auto child : cursor.GetChildren()) {
-    VisitCursor(self, child, deep + 1);
+  if ((!metaStruct.attributes.empty() && !metaStruct.fields.empty()) || metaStruct.kind == CXCursor_EnumDecl) {
+    astTree.EmplaceBack(std::move(metaStruct));
   }
+
+  VisitChildren(cursor);
 }
 
 void MetaParser::Impl::DebugAst() {
-  for (const auto& metaStruct : astTree_.metaStructList) {
-    std::cout << "name: " << metaStruct.typeName << std::endl;
+  for (const auto& metaStruct : astTree.metaStructList) {
+    std::string attributeStruct;
+    for (const auto& attribute : metaStruct.attributes) {
+      attributeStruct += attribute + ", ";
+    }
+    std::cout << attributeStruct << std::endl;
+    for (const auto& metaField : metaStruct.fields) {
+      std::string fieldAttributes;
+      for (const auto& attribute : metaField.attributes) {
+        fieldAttributes += attribute + ", ";
+      }
+      std::cout << fieldAttributes << std::endl;
+    }
   }
 }
 
