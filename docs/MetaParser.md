@@ -91,13 +91,21 @@ struct convert<UserStruct::ClassA> {
 
 **必须在 Visual Studio 开发者环境(或设置了 `INCLUDE`/`LIB` 环境变量)下运行解析器与测试。**
 
-原因:libclang 依赖 `INCLUDE` 环境变量定位 MSVC STL/Windows SDK 头文件。环境缺失时,解析仍会"成功"(字段名、注解、结构都在),但 `<string>`/`<vector>` 等类型解析失败,clang 错误恢复会把字段类型**静默降级为 `int`**——生成代码可读但错误,极难排查。
+原因:libclang 依赖 `INCLUDE` 环境变量定位 MSVC STL/Windows SDK 头文件。**环境缺失时解析会显式失败**:libclang 报出 `fatal error: 'string' file not found` 等诊断,解析器抛出 `MetaParseError` 异常,进程返回非 0(2x 版起,clang 错误诊断一律抛异常,不再静默继续)。
 
-- 解析标准为 `-std=c++17`(旧值 `c++11` 无法解析现代 MSVC STL)。
+- 解析标准:`-std=c++17` 为默认;cmake 模式下自动采用 target 在编译数据库中声明的标准(如 `c++latest` 会映射为 `c++26`,因为 libclang 的 GNU driver 不识别 MSVC 拼写)。
 - 自动化终端中可用 `vcvars64.bat` 包一层,例如:
   ```bat
   call "...\VC\Auxiliary\Build\vcvars64.bat" && cmake --build build\ninja-debug-msvc && ctest --test-dir build\ninja-debug-msvc
   ```
+
+### 诊断行为
+
+`MetaParser::BuildCursor` 收集 libclang 全部诊断:
+
+- **Error 及以上** → 抛 `Aternyx::MetaParseError`(继承 `std::runtime_error`),消息含每条 `文件:行:列` 诊断;生成流程 fail-fast。
+- **Warning** → 打印到 stderr,不中断。
+- 这保证"include 解析失败 / 字段类型被错误恢复降级"这类问题**第一时间暴露**,不会静默产出形似神非的生成代码。
 
 ## 6. 测试(test/,GTest,共 19 个)
 
@@ -108,12 +116,37 @@ struct convert<UserStruct::ClassA> {
 
 ## 7. CLI 用法
 
+工具支持两种模式,用互斥开关选择,缺省为 codegen:
+
 ```
-AternyxParser.exe <source_file> [-o 输出目录] [-t 模板目录] [-p 项目根目录] [-i include路径...] [--toml 配置文件]
+AternyxParser.exe [--codegen] <source_file> [选项]      # 解析单个源文件并生成
+AternyxParser.exe --cmake <compile_commands.json|目录> [--target <名>] [选项]
 ```
 
-- `-p` 建议传项目根:生成文件的 `#include "源文件相对路径"` 依赖它,缺省时该行为空 `#include ""`。
-- `--toml` 可配置 `output_path` / `project_path` / `template_path` / `include_paths`。
+通用选项:
+
+- `-o` 输出目录(默认 `_generated`);cmake 报告模式下报告 JSON 也写到这里。
+- `-t` 模板目录;`-p` 项目根(生成文件 `#include "相对路径"` 依赖它)。
+- `-i` include 路径,可一次传多个(`-i path1 path2`);codegen 模式直接作为解析路径;cmake 模式追加到 target 自身路径之后(例如补传项目根,让生成文件里的 `#include "Runtime/..."` 可解析)。
+- `--gen-path-style {snake_case, camel_case}` 生成子目录命名风格,默认 snake_case(`serialization/`、`editor_ui/`、`reflection/`),camel_case 为 `Serialization/`、`EditorUi/`、`Reflection/`。
+- `--toml` 配置文件:键可写在文件根或 `[parserParams]` 表下,支持 `output_path`、`project_path`、`template_path`、`include_paths`、`target`、`gen_path_style`;显式给出的命令行选项优先于 TOML。
+- 任何解析错误都会以异常终结并以非 0 退出码结束(见 §5 诊断行为)。
+
+### --cmake 模式
+
+基于 CMake 编译数据库(`compile_commands.json`,需 Ninja 生成器 + `CMAKE_EXPORT_COMPILE_COMMANDS=ON`):
+
+1. **分析报告**(不带 `--target`):按 `output` 字段中的 `CMakeFiles/<target>.dir/` 把每条编译记录归入 target,收集各 target 的源文件、include 路径(`-I`/`/I`/`-isystem`,**原样采用不做过滤**)、`-D` 宏定义与语言标准;控制台打印报告,并写 `<output>/cmake_targets_report.json`。
+2. **target 级生成**(`--target <名>`):对该 target 的全部 .cpp,用其 include 路径/宏/标准逐个解析,合并去重后一次生成到 `-o` 目录。任一文件解析失败即抛异常终止。
+
+典型用法(在项目根、MSVC 环境下):
+
+```bat
+AternyxParser.exe --cmake build\compile_commands.json -o _gen_report
+AternyxParser.exe --cmake build\compile_commands.json --target NyxCoreUtils -o Source\_Generated -t <模板目录> -p Source -i Source --gen-path-style camel_case
+```
+
+**bootstrap 注意**:若源码直接 `#include` 生成物(如 `_Generated/Serialization/X.gen.h`),首次生成时该文件尚不存在会报 include 错误。两种处理:先创建空占位文件(生成时会被真实内容覆盖),或先以定义该类型的头文件作为 codegen 模式的输入生成首版。另外,`YAML::convert<T>` 特化链(T 的成员也需特化时)要求所有相关 gen.h 在实例化点可见——让源码 include `all_include.gen.h` 即可聚合全部生成文件。
 
 ## 8. 已知限制(未实现/有缺陷,改造前勿依赖)
 
@@ -131,7 +164,7 @@ AternyxParser.exe <source_file> [-o 输出目录] [-t 模板目录] [-p 项目�
 meta/          标注宏定义
 example/       解析示例(测试输入)
 Template/      mustache 模板
-source/        Parser(libclang 封装+收集)、CodeGenerator、Config、Utils
+source/        Parser(libclang 封装+收集)、CodeGenerator、Config、Utils、CMakeAnalyzer(编译数据库分析+target 级生成)
 test/          GTest(与 source/ 结构镜像)
 docs/          本文档
 ```

@@ -23,14 +23,21 @@
    - 然后 `CMake --build --preset ninja-debug --target AternyxParser` 编译即可
 
 2. **运行解析 Run the Parser**
-   - 命令行示例：
+   - codegen 模式(默认,解析单个源文件并生成):
      ```
-     .\build\bin\AternyxParser.exe .\Example\main.cpp .\Example\
+     .\build\bin\AternyxParser.exe .\example\main.cpp -o _Generated -t Template -i example -p .
      ```
-   - 第一个参数是主源文件，后面是 include 路径。
+   - cmake 模式(分析编译数据库中各 target 的 include 路径,或对指定 target 生成):
+     ```
+     .\build\bin\AternyxParser.exe --cmake build\compile_commands.json -o _gen_report
+     .\build\bin\AternyxParser.exe --cmake build\compile_commands.json --target <目标名> -o _Generated -t Template -p . --gen-path-style camel_case
+     ```
+     需要先以 Ninja + `CMAKE_EXPORT_COMPILE_COMMANDS=ON` 配置生成 compile_commands.json。
+   - `--gen-path-style` 可切换生成子目录风格(snake_case 默认 / camel_case)。
 
 3. **查看生成结果 Check Output**
    - 查看 `Template/` 目录，了解有哪些模板可用。
-   - 运行后，自动生成的代码会在 `_Generated/` 目录下。
+   - 运行后，自动生成的代码会在输出目录的 `serialization|Serialization`、`editor_ui|EditorUi`、`reflection|Reflection` 子目录下。
+   - 解析报错(如 include 失败)会直接抛异常并以非 0 退出码结束,不会静默生成错误代码。
 
 ---

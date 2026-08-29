@@ -46,6 +46,12 @@ struct AstTree {
   void EmplaceBack(MetaStruct&& metaStruct);
   void RegisterTypeName(const std::string& fullTypeName);
   std::string GetTypeName(const std::string& typeName);
+  // Merges `other` into this tree. Types already present (matched by fully
+  // qualified name) are skipped, so annotated headers included by many
+  // translation units are collected only once. Cross-references
+  // (MetaStruct::derivedTypeIndex) are remapped to this tree, including
+  // base-class links that only become visible after the merge.
+  void MergeFrom(AstTree&& other);
 
  private:
   std::unordered_map<std::string, uint32_t> metaStructMap_;

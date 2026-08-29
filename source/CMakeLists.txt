@@ -16,7 +16,7 @@ target_include_directories(${LIB_TARGET}
     PRIVATE ${CMAKE_BINARY_DIR}
 )
 
-target_link_libraries(${LIB_TARGET} PUBLIC mustache libclang argparse toml)
+target_link_libraries(${LIB_TARGET} PUBLIC mustache libclang argparse toml json)
 
 add_executable(${EXE_TARGET} Main.cpp)
 target_link_libraries(${EXE_TARGET} PRIVATE ${LIB_TARGET})

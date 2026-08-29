@@ -4,11 +4,12 @@
 #include <clang-c/Index.h>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <stdexcept>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
-#include "Config/ArgConfig.h"
 #include "Utils/Utils.h"
 
 using Mustache = kainjow::mustache::mustache;
@@ -57,6 +58,17 @@ static const std::unordered_map<TempType, std::vector<std::string>> kPreIncludeF
     },
 };
 
+// Sub-directory names per generated category, for each supported path style.
+struct SubDirNames {
+  const char* snake;
+  const char* camel;
+};
+static const std::unordered_map<TempType, SubDirNames> kSubDirNames = {
+    {TempType::SERIALIZATION, {"serialization", "Serialization"}},
+    {TempType::EDITOR_UI, {"editor_ui", "EditorUi"}},
+    {TempType::REFLECTION, {"reflection", "Reflection"}},
+};
+
 struct CodeGenerator::Impl {
   std::unordered_set<std::string> tempTypeAList;
   std::unordered_map<TempType, std::vector<std::pair<Priority, std::string>>> generatedFileMap;
@@ -66,8 +78,9 @@ CodeGenerator::CodeGenerator() : impl_(std::make_unique<Impl>()) {}
 
 CodeGenerator::~CodeGenerator() = default;
 
-void CodeGenerator::Init() {
-  std::filesystem::path metaRootPath{ArgConfig::Instance().templatePath_};
+void CodeGenerator::Init(const CodegenConfig& config) {
+  config_ = config;
+  std::filesystem::path metaRootPath{config_.templatePath};
   uint32_t count = kTempConfigList.size();
   tempList_.resize(count);
   for (int i = 0; i < count; i++) {
@@ -75,6 +88,7 @@ void CodeGenerator::Init() {
     tempMap_[StringLib::ToLower(tempName)] = -1;
     fs::path filePath{metaRootPath / (tempName + ".mustache")};
     if (!std::filesystem::exists(filePath)) {
+      std::cerr << "[CodeGenerator] warning: template not found, skipped: " << filePath.string() << std::endl;
       continue;
     }
     std::ifstream ifs{filePath, std::ios::binary};
@@ -83,6 +97,8 @@ void CodeGenerator::Init() {
     ifs.close();
     tempList_[i] = kainjow::mustache::mustache{buffer.str()};
     if (!tempList_[i].is_valid()) {
+      throw std::runtime_error("Invalid mustache template: " + filePath.string() + " (" +
+                               tempList_[i].error_message() + ")");
     } else {
       tempList_[i].set_custom_escape(kainjow::mustache::trim<std::string>);
       tempMap_[StringLib::ToLower(tempName)] = i;
@@ -228,7 +244,7 @@ void CodeGenerator::GenFileByMetaStructList(const std::string& tempName,
   std::unordered_set<std::string> includeFiles;
   for (auto& pMetaStruct : metaStructList) {
     metaTypeList.push_back(metaStructDataMap_.at(pMetaStruct));
-    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, ArgConfig::Instance().projectPath_));
+    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, config_.projectPath));
   }
   data.set("meta_type_list", metaTypeList);
   MustacheData includeFileList = MustacheData::type::list;
@@ -251,27 +267,15 @@ void CodeGenerator::GenFile(const std::string& tempName,
   std::string outFileName = fileName + tempConfig.outFileName;
   std::string filePath;
 
-  std::string outputPath = ArgConfig::Instance().outputPath_;
-
   TempType tempType = overrideType != TempType::NONE ? overrideType : tempConfig.type;
-  switch (tempType) {
-    case TempType::SERIALIZATION:
-      if (!fs::exists(outputPath + "/serialization/"))
-        fs::create_directories(outputPath + "/serialization/");
-      filePath = outputPath + "/serialization/" + outFileName;
-      break;
-    case TempType::EDITOR_UI:
-      if (!fs::exists(outputPath + "/editor_ui/"))
-        fs::create_directories(outputPath + "/editor_ui/");
-      filePath = outputPath + "/editor_ui/" + outFileName;
-      break;
-    case TempType::REFLECTION:
-      if (!fs::exists(outputPath + "/reflection/"))
-        fs::create_directories(outputPath + "/reflection/");
-      filePath = outputPath + "/reflection/" + outFileName;
-      break;
-    case TempType::NONE:
-      break;
+  if (tempType != TempType::NONE) {
+    const SubDirNames& subDirNames = kSubDirNames.at(tempType);
+    const char* subDir =
+        config_.pathStyle == GenPathStyle::CamelCase ? subDirNames.camel : subDirNames.snake;
+    fs::path dir = fs::path{config_.outputPath} / subDir;
+    if (!fs::exists(dir))
+      fs::create_directories(dir);
+    filePath = (dir / outFileName).string();
   }
 
   if (tempConfig.type != TempType::NONE)

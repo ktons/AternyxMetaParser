@@ -134,3 +134,29 @@ TEST_F(MetaParserTest, ParseEmptyFile) {
 
   fs::remove(tmpPath);
 }
+
+// An unresolved include must surface as a hard MetaParseError instead of
+// letting clang error-recovery silently degrade field types to int.
+TEST_F(MetaParserTest, MissingIncludeThrows) {
+  fs::path tmpPath =
+      CreateTempFile("#include \"no_such_header_for_diag_test.h\"\nint main() { return 0; }\n");
+
+  std::vector<std::string> include_paths;
+  Aternyx::MetaParser parser(tmpPath.string(), include_paths);
+  EXPECT_THROW(parser.BuildCursor(), Aternyx::MetaParseError);
+
+  fs::remove(tmpPath);
+}
+
+// extraClangArgs must replace the built-in -std flag (e.g. a compile db entry
+// for a project built with a different language standard).
+TEST_F(MetaParserTest, ExtraArgsOverrideStd) {
+  fs::path tmpPath = CreateTempFile("int main() { return 0; }\n");
+
+  std::vector<std::string> include_paths;
+  std::vector<std::string> extra_args = {"-std=c++20", "-DMY_TEST_MACRO=1"};
+  Aternyx::MetaParser parser(tmpPath.string(), include_paths, extra_args);
+  EXPECT_NO_THROW(parser.BuildCursor());
+
+  fs::remove(tmpPath);
+}

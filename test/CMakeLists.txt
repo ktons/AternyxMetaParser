@@ -25,6 +25,8 @@ find_package(Threads REQUIRED)
 enable_testing()
 
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "*.cpp")
+# fixture sources (mini CMake projects) are parse inputs, not build inputs
+list(FILTER TEST_SOURCES EXCLUDE REGEX "fixtures/")
 
 add_executable(${TEST_TARGET} ${TEST_SOURCES})
 
