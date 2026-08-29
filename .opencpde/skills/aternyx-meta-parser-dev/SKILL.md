@@ -46,9 +46,12 @@ ctest --test-dir build/ninja-debug-msvc --output-on-failure
 ```bash
 # cwd 建议为仓库根;-p 传项目根,否则生成文件的 #include 行为空 "#include \"\""
 build/bin/AternyxParser.exe example/main.cpp -o _generated -t Template -i example -p .
+# cmake 模式:分析编译数据库各 target 的 include 路径;--target 对指定 target 生成
+build/bin/AternyxParser.exe --cmake <项目>/build/compile_commands.json -o _gen_report
+build/bin/AternyxParser.exe --cmake <项目>/build/compile_commands.json --target <目标名> -o <输出> -t Template -p <项目源根> -i <项目源根> --gen-path-style camel_case
 ```
 
-参数:`<source_file>` 主源文件;`-o` 输出目录(默认 `_generated`);`-t` 模板目录;`-i` include 路径(可多个);`-p` 项目根;`--toml` 配置文件。输出落到 `<o>/serialization|editor_ui|reflection/*.gen.h`。
+参数:`--codegen`(默认)codegen 模式,`<source_file>` 主源文件;`--cmake` cmake 模式,`<input>` 为 compile_commands.json 或其目录,`--target` 指定生成目标(缺省只出报告);`-o` 输出目录(默认 `_generated`);`-t` 模板目录;`-i` include 路径(一次可传多个,cmake 模式下作为 target 路径的补充);`-p` 项目根;`--gen-path-style {snake_case,camel_case}` 生成子目录风格(默认 snake_case);`--toml` 配置文件。输出落到 `<o>/serialization|editor_ui|reflection/*.gen.h`(camel_case 时为 `Serialization|EditorUi|Reflection`)。解析错误(缺 include 等)会抛异常并以非 0 退出码结束。
 
 ## 速查
 
