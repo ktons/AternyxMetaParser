@@ -10,6 +10,8 @@
 
 这是一个 C++ 元数据解析和代码生成的初步版本。它可以扫描你的 C++ 源码，结合 `Template/` 下的 mustache 模板，自动生成代码到 `_Generated/` 目录。
 
+> 当前功能的完整说明(解析能力、生成模板、运行环境要求、已知限制)见 [docs/MetaParser.md](docs/MetaParser.md)。
+
 ---
 
 ## 如何使用 How to Use
