@@ -29,9 +29,6 @@ struct CodegenConfig {
   std::string outputPath;
   // Directory holding the mustache templates.
   std::string templatePath;
-  // Legacy project root. No longer used for include spellings (see
-  // includeRoots); kept for configuration compatibility.
-  std::string projectPath;
   // Candidate include roots used to spell the `#include` lines referencing
   // the analyzed headers (see StringLib::MakeIncludeSpelling): the deepest
   // root containing a header wins — correct by construction when the roots
@@ -39,10 +36,6 @@ struct CodegenConfig {
   // files. When no root contains a header, the include falls back to a path
   // relative to the generated file's own directory.
   std::vector<std::string> includeRoots;
-  // Per-category prelude includes injected into the category's
-  // all_include.gen.h. A present entry (even an empty one) replaces the
-  // built-in defaults for that category; absent entries keep the defaults.
-  std::unordered_map<TempType, std::vector<std::string>> preIncludes;
   // Per parsed source file: every file it transitively #includes (normalized
   // absolute paths). Used to emit `gen_include_list` entries for generated
   // outputs of included annotated headers — generated code references the
@@ -110,7 +103,7 @@ class CodeGenerator {
   void GenAllIncludes();
 
   std::filesystem::path ResolveOutputDir(TempType tempType) const;
-  // config_.preIncludes entry for the category, or the built-in defaults.
+  // The built-in default prelude includes for the category.
   const std::vector<std::string>& PreludeFor(TempType tempType) const;
 };
 }  // namespace Aternyx

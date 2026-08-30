@@ -1,2 +1,6 @@
-[parserParams]
-include_paths = ["example", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/"]
+# AternyxMetaParser 项目无关配置，经 aternyx_target_codegen(... CONFIG <本文件>)
+# 或命令行 --toml 传入。工程相关的输入（源文件、include 路径、输出目录等）
+# 全部来自 CMake，不在这里配置。
+gen_path_style = "snake_case"   # 生成子目录风格：serialization / editor_ui / reflection
+parse_headers = true            # 解析注解头（而非 target 的 .cpp 文件）
+header_markers = ["CLASS(", "STRUCT(", "ENUM_CLASS("]  # 注解头的文本预筛标记

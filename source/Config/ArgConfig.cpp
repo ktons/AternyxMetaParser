@@ -2,7 +2,6 @@
 
 #include <argparse.hpp>
 #include <iostream>
-#include <optional>
 #include <toml.hpp>
 
 template <typename T>
@@ -23,24 +22,19 @@ inline void ApplyParserValue(std::vector<T>& value,
 }
 
 bool ArgConfig::Validate() {
-  if (sourceFile_.empty()) {
-    std::cerr << (mode == Aternyx::CliMode::CMake
-                      ? "No compile_commands.json path provided."
-                      : "No source file provided.")
-              << std::endl;
+  if (compileDbPath_.empty()) {
+    std::cerr << "No compile_commands.json path provided." << std::endl;
     return false;
   }
   return true;
 }
 
 void ArgConfig::DebugInfo() {
-  std::cout << "mode: " << (mode == Aternyx::CliMode::CMake ? "cmake" : "codegen") << std::endl;
   std::cout << "output path: " << outputPath_ << std::endl;
   std::cout << "gen path style: "
             << (genPathStyle_ == Aternyx::GenPathStyle::CamelCase ? "camel_case" : "snake_case")
             << std::endl;
-  if (mode == Aternyx::CliMode::CMake)
-    std::cout << "target: " << (target_.empty() ? "<report only>" : target_) << std::endl;
+  std::cout << "target: " << (target_.empty() ? "<report only>" : target_) << std::endl;
 }
 
 bool ArgConfig::ParseArgs(int argc, char* argv[]) {
@@ -48,16 +42,16 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
   argparse::ArgumentParser parser(progName);
 
   parser.add_argument("input")
-      .help("codegen mode: source file to parse; cmake mode: compile_commands.json path (or its directory)")
+      .help("compile_commands.json path (or its directory)")
       .nargs(1)
-      .store_into(sourceFile_);
+      .store_into(compileDbPath_);
 
   parser.add_argument("-o", "--output-path")
       .help("Generator output path")
       .default_value(std::string("_generated"));
 
   parser.add_argument("-p", "--project-path")
-      .help("Deprecated for include spellings; cmake mode: extra header scan root for --parse-headers")
+      .help("Extra header scan root for parse_headers mode")
       .default_value(std::string(""));
 
   parser.add_argument("-t", "--template-path")
@@ -66,33 +60,13 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
 
   parser.add_argument("-i", "--include-path").help("Include paths").nargs(argparse::nargs_pattern::any);
 
-  parser.add_argument("--toml").help("Toml config file path").default_value(std::string{""});
-
-  bool codegenFlag = false;
-  bool cmakeFlag = false;
-  auto& modeGroup = parser.add_mutually_exclusive_group();
-  modeGroup.add_argument("--codegen")
-      .help("codegen mode: analyze the input source file and generate code (default)")
-      .flag()
-      .store_into(codegenFlag);
-  modeGroup.add_argument("--cmake")
-      .help("cmake mode: analyze the compile database given as <input>; add --target to also generate code")
-      .flag()
-      .store_into(cmakeFlag);
-
-  parser.add_argument("--target")
-      .help("cmake mode: run code generation for this target instead of only reporting")
+  parser.add_argument("--toml")
+      .help("TOML config file path (gen_path_style / parse_headers / header_markers)")
       .default_value(std::string{""});
 
-  parser.add_argument("--parse-headers")
-      .help("cmake mode: parse annotated headers instead of the target's .cpp files "
-            "(headers must be self-contained and must not include generated files)")
-      .flag();
-
-  parser.add_argument("--gen-path-style")
-      .help("Naming style of the generated sub-directories (serialization / editor_ui / reflection)")
-      .choices("snake_case", "camel_case")
-      .default_value(std::string{"snake_case"});
+  parser.add_argument("--target")
+      .help("run code generation for this target instead of only reporting")
+      .default_value(std::string{""});
 
   try {
     parser.parse_args(argc, const_cast<const char* const*>(argv));
@@ -101,13 +75,12 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
     return false;
   }
 
-  mode = cmakeFlag ? Aternyx::CliMode::CMake : Aternyx::CliMode::Codegen;
-
   // TOML values are applied first, then only explicitly given CLI options
-  // overwrite them (TOML still wins over built-in defaults).
+  // overwrite them (TOML still wins over built-in defaults). A broken config
+  // file aborts instead of silently running on defaults.
   auto tomlPath = parser.get<std::string>("--toml");
-  if (!tomlPath.empty())
-    ParseTomlConfig(tomlPath.data());
+  if (!tomlPath.empty() && !ParseTomlConfig(tomlPath.data()))
+    return false;
 
   if (parser.is_used("-o"))
     outputPath_ = parser.get<std::string>("-o");
@@ -121,10 +94,6 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
   }
 
   target_ = parser.get<std::string>("--target");
-  if (parser.is_used("--parse-headers"))
-    parseHeaders_ = true;
-  // choices() already restricted the value; parse it for the enum.
-  Aternyx::ParseGenPathStyle(parser.get<std::string>("--gen-path-style"), genPathStyle_);
 
   return Validate();
 }
@@ -139,43 +108,7 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
     auto res = toml::parse_file(tomlConfigPath);
     toml::table tbl = res;
 
-    // Keys may live at the file root or inside a [parserParams] table.
-    const toml::table* paramsTable = tbl.get_as<toml::table>("parserParams");
-    auto findNode = [&](const char* key) -> const toml::node* {
-      if (auto node = tbl.get(key))
-        return node;
-      if (paramsTable != nullptr)
-        if (auto node = paramsTable->get(key))
-          return node;
-      return nullptr;
-    };
-
-    if (auto node = findNode("output_path"))
-      if (auto v = node->value<std::string>())
-        outputPath_ = *v;
-
-    if (auto node = findNode("project_path"))
-      if (auto v = node->value<std::string>())
-        projectPath_ = *v;
-
-    if (auto node = findNode("template_path"))
-      if (auto v = node->value<std::string>())
-        templatePath_ = *v;
-
-    if (auto node = findNode("include_paths"))
-      if (auto arr = node->as_array()) {
-        includePaths_.clear();
-        for (auto& elem : *arr) {
-          if (auto s = elem.value<std::string>())
-            includePaths_.push_back(*s);
-        }
-      }
-
-    if (auto node = findNode("target"))
-      if (auto v = node->value<std::string>())
-        target_ = *v;
-
-    if (auto node = findNode("gen_path_style"))
+    if (auto node = tbl.get("gen_path_style"))
       if (auto v = node->value<std::string>()) {
         Aternyx::GenPathStyle style = Aternyx::GenPathStyle::SnakeCase;
         if (!Aternyx::ParseGenPathStyle(*v, style)) {
@@ -185,11 +118,11 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
         genPathStyle_ = style;
       }
 
-    if (auto node = findNode("parse_headers"))
+    if (auto node = tbl.get("parse_headers"))
       if (auto v = node->value<bool>())
         parseHeaders_ = *v;
 
-    if (auto node = findNode("header_markers"))
+    if (auto node = tbl.get("header_markers"))
       if (auto arr = node->as_array()) {
         headerMarkers_.clear();
         for (auto& elem : *arr) {
@@ -197,27 +130,6 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
             headerMarkers_.push_back(*s);
         }
       }
-
-    const toml::table* preTable = tbl.get_as<toml::table>("preIncludes");
-    if (preTable == nullptr && paramsTable != nullptr)
-      preTable = paramsTable->get_as<toml::table>("preIncludes");
-    if (preTable != nullptr) {
-      auto readList = [&](const toml::node& node) -> std::optional<std::vector<std::string>> {
-        if (auto arr = node.as_array()) {
-          std::vector<std::string> items;
-          for (auto& elem : *arr) {
-            if (auto s = elem.value<std::string>())
-              items.push_back(*s);
-          }
-          return items;
-        }
-        return std::nullopt;
-      };
-      for (auto& [key, value] : *preTable) {
-        if (auto items = readList(value))
-          preIncludes_[std::string{key.str()}] = std::move(*items);
-      }
-    }
 
     return true;
   } catch (const std::exception& e) {

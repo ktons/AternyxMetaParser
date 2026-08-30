@@ -1,0 +1,4 @@
+# AternyxMetaParser project-independent settings, passed to the parser via
+# aternyx_target_codegen(... CONFIG <this file>). Project-specific inputs
+# (sources, include paths, output dir) all come from CMake.
+parse_headers = true  # parse annotated headers instead of the target's .cpp files

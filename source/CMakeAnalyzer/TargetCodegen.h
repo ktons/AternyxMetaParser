@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "CMakeAnalyzer/CMakeTargetAnalyzer.h"
@@ -33,8 +32,6 @@ struct TargetCodegenOptions {
   // Text markers identifying annotated headers (e.g. "CLASS("); empty uses
   // the built-in defaults.
   std::vector<std::string> headerMarkers;
-  // Per-category prelude includes for all_include.gen.h (see CodegenConfig).
-  std::unordered_map<Aternyx::TempType, std::vector<std::string>> preIncludes;
 };
 
 // Runs reflection code generation for one CMake target. The parse inputs are

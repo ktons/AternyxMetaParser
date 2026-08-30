@@ -9,41 +9,11 @@
 
 #include "CMakeAnalyzer/CMakeTargetAnalyzer.h"
 #include "CMakeAnalyzer/TargetCodegen.h"
-#include "CodeGenerator/CodeGenerator.h"
 #include "Config/ArgConfig.h"
-#include "Parser/Parser.h"
 
 namespace fs = std::filesystem;
 
 namespace {
-
-// Copies the TOML [preIncludes] table (category-name keyed) into the
-// TempType-keyed maps used by the generator, warning on unknown categories.
-void ApplyPreludeIncludes(std::unordered_map<Aternyx::TempType, std::vector<std::string>>& out) {
-  for (const auto& [name, files] : ArgConfig::Instance().preIncludes_) {
-    Aternyx::TempType type;
-    if (Aternyx::ParseTempTypeCategory(name, type))
-      out[type] = files;
-    else
-      std::cerr << "[AternyxParser] warning: unknown pre-include category '" << name
-                << "' (expected serialization / editor_ui / reflection)" << std::endl;
-  }
-}
-
-Aternyx::CodegenConfig MakeCodegenConfigFromArgs() {
-  const ArgConfig& args = ArgConfig::Instance();
-  Aternyx::CodegenConfig config;
-  config.outputPath = args.outputPath_;
-  config.templatePath = args.templatePath_;
-  config.projectPath = args.projectPath_;
-  config.pathStyle = args.genPathStyle_;
-  // Candidate roots for spelling generated `#include` lines: the -i paths
-  // (the project root is no longer one — spellings must come from roots the
-  // consuming compilation actually has).
-  config.includeRoots = args.includePaths_;
-  ApplyPreludeIncludes(config.preIncludes);
-  return config;
-}
 
 Aternyx::CMake::TargetCodegenOptions MakeTargetCodegenOptionsFromArgs() {
   const ArgConfig& args = ArgConfig::Instance();
@@ -55,31 +25,16 @@ Aternyx::CMake::TargetCodegenOptions MakeTargetCodegenOptionsFromArgs() {
   options.extraIncludePaths = args.includePaths_;
   options.parseHeaders = args.parseHeaders_;
   options.headerMarkers = args.headerMarkers_;
-  ApplyPreludeIncludes(options.preIncludes);
   return options;
 }
 
-// Classic behavior: parse the input source file, generate code.
-int RunCodegenMode() {
-  ArgConfig& args = ArgConfig::Instance();
-
-  Aternyx::MetaParser parser{args.sourceFile_, args.includePaths_};
-  parser.BuildCursor();
-
-  Aternyx::CodeGenerator generator;
-  generator.Init(MakeCodegenConfigFromArgs());
-  generator.SetAstTree(&parser.GetAstTree());
-  generator.Run();
-  return 0;
-}
-
-// cmake mode: analyze the compile database; with --target, generate code for
-// that target, otherwise write a per-target report.
+// Analyze the compile database; with --target, generate code for that
+// target, otherwise write a per-target report.
 int RunCMakeMode() {
   const ArgConfig& args = ArgConfig::Instance();
 
   Aternyx::CMake::CMakeTargetAnalyzer analyzer;
-  if (!analyzer.Analyze(args.sourceFile_))
+  if (!analyzer.Analyze(args.compileDbPath_))
     throw std::runtime_error(analyzer.LastError());
 
   if (args.target_.empty()) {
@@ -92,7 +47,7 @@ int RunCMakeMode() {
     }
 
     nlohmann::json report;
-    report["compile_commands"] = args.sourceFile_;
+    report["compile_commands"] = args.compileDbPath_;
     report["targets"] = nlohmann::json::array();
     for (const Aternyx::CMake::CMakeTarget& target : analyzer.Targets()) {
       nlohmann::json entry;
@@ -139,9 +94,7 @@ int main(int argc, char* argv[]) {
     return -1;
 
   try {
-    if (ArgConfig::Instance().mode == Aternyx::CliMode::CMake)
-      return RunCMakeMode();
-    return RunCodegenMode();
+    return RunCMakeMode();
   } catch (const std::exception& e) {
     std::cerr << "[AternyxParser] error: " << e.what() << std::endl;
     return 1;

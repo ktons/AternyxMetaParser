@@ -14,13 +14,11 @@ namespace fs = std::filesystem;
 // ArgConfig singleton).
 static Aternyx::CodegenConfig MakeConfig(const std::string& outputPath,
                                          const std::string& templatePath,
-                                         const std::string& projectPath,
                                          Aternyx::GenPathStyle style = Aternyx::GenPathStyle::SnakeCase,
                                          const std::vector<std::string>& includeRoots = {}) {
   Aternyx::CodegenConfig config;
   config.outputPath = outputPath;
   config.templatePath = templatePath;
-  config.projectPath = projectPath;
   config.pathStyle = style;
   config.includeRoots = includeRoots;
   return config;
@@ -69,7 +67,7 @@ class CodeGeneratorTest : public ::testing::Test {
 
 TEST_F(CodeGeneratorTest, Init) {
   Aternyx::CodeGenerator generator;
-  EXPECT_NO_THROW(generator.Init(MakeConfig(output_path_, template_path_, project_root_)));
+  EXPECT_NO_THROW(generator.Init(MakeConfig(output_path_, template_path_)));
 }
 
 TEST_F(CodeGeneratorTest, ParseAndGenerate) {
@@ -79,7 +77,7 @@ TEST_F(CodeGeneratorTest, ParseAndGenerate) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.Init(MakeConfig(output_path_, template_path_));
   generator.SetAstTree(&ast);
   EXPECT_NO_THROW(generator.Run());
 
@@ -101,7 +99,7 @@ TEST_F(CodeGeneratorTest, ParseAndGenerate) {
 TEST_F(CodeGeneratorTest, GenerateEmptyAst) {
   Aternyx::AstTree empty_ast;
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.Init(MakeConfig(output_path_, template_path_));
   generator.SetAstTree(&empty_ast);
   EXPECT_NO_THROW(generator.Run());
 }
@@ -112,7 +110,7 @@ TEST_F(CodeGeneratorTest, VerifyGeneratedFilesExist) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.Init(MakeConfig(output_path_, template_path_));
   generator.SetAstTree(&ast);
   generator.Run();
 
@@ -139,7 +137,7 @@ TEST_F(CodeGeneratorTest, VerifySerializationContent) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.Init(MakeConfig(output_path_, template_path_));
   generator.SetAstTree(&ast);
   generator.Run();
 
@@ -188,7 +186,7 @@ TEST_F(CodeGeneratorTest, IncludeSpellingUsesDeepestRoot) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_, Aternyx::GenPathStyle::SnakeCase,
+  generator.Init(MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::SnakeCase,
                             {example_path_, project_root_}));
   generator.SetAstTree(&ast);
   generator.Run();
@@ -210,7 +208,7 @@ TEST_F(CodeGeneratorTest, IncludeSpellingFallsBackRelativeToOutput) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.Init(MakeConfig(output_path_, template_path_));
   generator.SetAstTree(&ast);
   generator.Run();
 
@@ -228,7 +226,7 @@ TEST_F(CodeGeneratorTest, NoHardcodedGeneratedIncludePaths) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.Init(MakeConfig(output_path_, template_path_));
   generator.SetAstTree(&ast);
   generator.Run();
 
@@ -268,7 +266,7 @@ TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
   ast.metaStructList.push_back(std::move(derived));
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, project_root_, Aternyx::GenPathStyle::SnakeCase,
+  generator.Init(MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::SnakeCase,
                             {(fs::path(project_root_) / "example").string()}));
   generator.SetAstTree(&ast);
   generator.Run();
@@ -297,7 +295,7 @@ TEST_F(CodeGeneratorTest, GenPathStyleCamelCase) {
 
   Aternyx::CodeGenerator generator;
   generator.Init(
-      MakeConfig(output_path_, template_path_, project_root_, Aternyx::GenPathStyle::CamelCase));
+      MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::CamelCase));
   generator.SetAstTree(&ast);
   generator.Run();
 

@@ -4,10 +4,11 @@
 #     PARSER <AternyxParser executable>
 #     TEMPLATE_DIR <dir>
 #     [OUTPUT_DIR <dir>]        # default: ${CMAKE_BINARY_DIR}/generated
-#     [PROJECT_ROOT <dir>]      # extra header scan root for PARSE_HEADERS
-#     [PARSE_HEADERS]           # parse annotated headers instead of .cpp files
-#     [GEN_PATH_STYLE snake_case|camel_case]
-#     [CONFIG <toml>]           # parser TOML config (e.g. per-category prelude includes)
+#     [PROJECT_ROOT <dir>]      # extra header scan root for parse_headers mode
+#     [CONFIG <toml>]           # TOML with project-independent settings:
+#                               #   gen_path_style = "snake_case"|"camel_case"
+#                               #   parse_headers = true|false
+#                               #   header_markers = ["CLASS(", ...]
 #     [EXTRA_INCLUDE_PATHS <dir>...])
 #
 # The generated headers are compiled by <target> itself: this function runs
@@ -16,6 +17,13 @@
 # include directories. The output path and the include path are therefore one
 # decision, made in one place — this is what makes the `#include` lines
 # inside generated files resolve by construction.
+#
+# Whether the parser consumes the target's .cpp files or its annotated
+# headers (parse_headers mode) is a project-wide setting: set
+# `parse_headers = true` in the TOML passed via CONFIG. Headers must be
+# self-contained and must not include generated files. Annotated headers
+# outside the target's source directories are found when PROJECT_ROOT (or a
+# directory reachable from it) contains them.
 #
 # Notes:
 #  - Requires a generator that exports compile_commands.json (Ninja; the
@@ -26,7 +34,7 @@
 #    cannot be processed.
 
 function(aternyx_target_codegen TARGET_NAME)
-  cmake_parse_arguments(ATC "PARSE_HEADERS" "PARSER;OUTPUT_DIR;TEMPLATE_DIR;PROJECT_ROOT;GEN_PATH_STYLE;CONFIG"
+  cmake_parse_arguments(ATC "" "PARSER;OUTPUT_DIR;TEMPLATE_DIR;PROJECT_ROOT;CONFIG"
                         "EXTRA_INCLUDE_PATHS" ${ARGN})
 
   if(NOT TARGET ${TARGET_NAME})
@@ -51,9 +59,6 @@ function(aternyx_target_codegen TARGET_NAME)
   if(NOT ATC_OUTPUT_DIR)
     set(ATC_OUTPUT_DIR "${CMAKE_BINARY_DIR}/generated")
   endif()
-  if(NOT ATC_GEN_PATH_STYLE)
-    set(ATC_GEN_PATH_STYLE "snake_case")
-  endif()
 
   get_target_property(_codegen_sources ${TARGET_NAME} SOURCES)
   if(NOT _codegen_sources)
@@ -65,11 +70,10 @@ function(aternyx_target_codegen TARGET_NAME)
   set(ATC_STAMP "${ATC_OUTPUT_DIR}/.aternyx_codegen_${TARGET_NAME}.stamp")
 
   set(_codegen_args
-      --cmake "${CMAKE_BINARY_DIR}/compile_commands.json"
+      "${CMAKE_BINARY_DIR}/compile_commands.json"
       --target "${TARGET_NAME}"
       -o "${ATC_OUTPUT_DIR}"
-      -t "${ATC_TEMPLATE_DIR}"
-      --gen-path-style "${ATC_GEN_PATH_STYLE}")
+      -t "${ATC_TEMPLATE_DIR}")
   if(ATC_PROJECT_ROOT)
     list(APPEND _codegen_args -p "${ATC_PROJECT_ROOT}")
   endif()
@@ -79,9 +83,6 @@ function(aternyx_target_codegen TARGET_NAME)
   foreach(_dir IN LISTS ATC_EXTRA_INCLUDE_PATHS)
     list(APPEND _codegen_args -i "${_dir}")
   endforeach()
-  if(ATC_PARSE_HEADERS)
-    list(APPEND _codegen_args --parse-headers)
-  endif()
 
   add_custom_command(
     OUTPUT "${ATC_STAMP}"

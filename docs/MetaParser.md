@@ -81,7 +81,7 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 2. **相对兜底**:头文件不在任何根下时,拼写 = 相对生成文件自身目录(利用编译器对 `""` include 先搜包含者所在目录的规则,零配置可解析)。
 3. 全程正斜杠(修复 Windows 反斜杠进 `#include` 的转义隐患);路径根无关(如跨盘)时直接报错,绝不产出 `#include ""`。
 
-`-p/--project-path` 不再参与 include 拼写(弃用):拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。cmake 模式下 `-p` 仅作为 `--parse-headers` 的附加扫描根。`gen_include_list`(gen→gen 依赖)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
+`-p/--project-path` 不参与 include 拼写:拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。`-p` 仅作为 `parse_headers` 模式的附加扫描根。`gen_include_list`(gen→gen 依赖)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
 
 ### gen→gen 依赖(include 图,2026-08-30)
 
@@ -138,58 +138,55 @@ struct convert<UserStruct::ClassA> {
 - **Warning** → 打印到 stderr,不中断。
 - 这保证"include 解析失败 / 字段类型被错误恢复降级"这类问题**第一时间暴露**,不会静默产出形似神非的生成代码。
 
-## 6. 测试(test/,GTest,经 ctest 注册共 70 个用例)
+## 6. 测试(test/,GTest,经 ctest 注册共 66 个用例)
 
 - 由 `gtest_discover_tests` 注册到 ctest,`WORKING_DIRECTORY` 为仓库根(测试通过 `fs::current_path()` 定位 `example/`、`Template/`)。
-- 覆盖:Cursor 封装、ArgConfig、libclang 冒烟、Parser 字段解析(`VerifyClassAFields`、`VerifyDataBlockFields`、字段类型全限定 `QualifiesFieldTypeNames`)、CodeGenerator 端到端、include 拼写策略(`UtilsTest`、`IncludeSpelling*`、`GenIncludeList*`)、cmake 模式(`TargetCodegenTest`,含 `--parse-headers`、gen→gen 依赖 `GeneratedOutputIncludesOutputsOfIncludedHeaders`)。
+- 覆盖:Cursor 封装、ArgConfig(编译数据库参数 + TOML 三键)、libclang 冒烟、Parser 字段解析(`VerifyClassAFields`、`VerifyDataBlockFields`、字段类型全限定 `QualifiesFieldTypeNames`)、CodeGenerator 端到端、include 拼写策略(`UtilsTest`、`IncludeSpelling*`、`GenIncludeList*`)、target 级生成(`TargetCodegenTest`,含 `parse_headers`、gen→gen 依赖 `GeneratedOutputIncludesOutputsOfIncludedHeaders`)。
 - **golden 内容测试 `CodeGeneratorTest.VerifySerializationContent`**:解析 example → 生成 → 对 `_generated_test/serialization/user_struct.gen.h` 做子串断言(字段名、`as<类型>()`、`convert<全限定名>`、Runtime 字段被排除),并校验 editor_ui 输出。这是唯一守住"字段准确"的防线。
 - 注意:测试只断言生成文本,不编译生成代码。
 
 ## 7. CLI 用法
 
-工具支持两种模式,用互斥开关选择,缺省为 codegen:
+唯一的运行入口是 CMake 编译数据库:
 
 ```
-AternyxParser.exe [--codegen] <source_file> [选项]      # 解析单个源文件并生成
-AternyxParser.exe --cmake <compile_commands.json|目录> [--target <名>] [选项]
+AternyxParser.exe <compile_commands.json|目录> [--target <名>] [选项]
 ```
 
-通用选项:
+选项:
 
-- `-o` 输出目录(默认 `_generated`);cmake 报告模式下报告 JSON 也写到这里。
-- `-t` 模板目录;`-p` 项目根(**已不参与 include 拼写**;cmake 模式下仅作 `--parse-headers` 的附加头文件扫描根)。
-- `-i` include 路径,可一次传多个(`-i path1 path2`);codegen 模式直接作为解析路径;cmake 模式追加到 target 自身路径之后。**`-i` 同时是生成文件 `#include` 拼写的候选根**(见上文"include 拼写策略"),把哪些根传进来,生成文件的 include 就以哪个为根。
-- `--gen-path-style {snake_case, camel_case}` 生成子目录命名风格,默认 snake_case(`serialization/`、`editor_ui/`、`reflection/`),camel_case 为 `Serialization/`、`EditorUi/`、`Reflection/`。
-- `--toml` 配置文件:键可写在文件根或 `[parserParams]` 表下,支持 `output_path`、`project_path`、`template_path`、`include_paths`、`target`、`gen_path_style`、`parse_headers`、`header_markers`,以及 `[preIncludes]` 表;显式给出的命令行选项优先于 TOML。
-- `[preIncludes]` 表按类别(`serialization` / `editor_ui` / `reflection`)给出注入 `all_include.gen.h` 的 prelude include 数组;某类别键存在(即使为空数组)即替换该类别的内置默认值,缺省类别保留内置默认。内置默认:serialization=`<yaml-cpp/yaml.h>`、`"precompile/core_serialization.h"`、`<ucore/struct/object_pool.h>`、`"precompile/component_serialization.h"`;editor_ui=两个 imgui utility 头;reflection=`<ucore/struct/object_pool.h>`。把项目相关的运行时头从工具解耦,就改这里。
-- 任何解析错误都会以异常终结并以非 0 退出码结束(见 §5 诊断行为)。
+- `-o` 输出目录(默认 `_generated`);报告模式下报告 JSON 也写到这里。
+- `-t` 模板目录。
+- `-p` `parse_headers` 模式的附加头文件扫描根(**不参与 include 拼写**;拼写根自动取自 target 的 `-I`)。
+- `-i` include 路径,可一次传多个(`-i path1 path2`);追加到 target 自身路径之后。**`-i` 同时是生成文件 `#include` 拼写的候选根**(见上文"include 拼写策略"),把哪些根传进来,生成文件的 include 就以哪个为根。
+- `--target <名>` 对该 target 生成;缺省只输出分析报告。
+- `--toml` 配置文件:工程无关设置,**只读根级键**——`gen_path_style`(生成子目录命名风格,`snake_case` 默认/`camel_case`)、`parse_headers`(解析注解头而非 .cpp)、`header_markers`(注解头文本预筛标记);见 `example/params.toml`。TOML 值覆盖内置默认,命令行选项始终优先。
+- 任何解析错误(含配置文件错误)都会以异常终结并以非 0 退出码结束(见 §5 诊断行为)。
 
-### --cmake 模式
+### 运行模式
 
 基于 CMake 编译数据库(`compile_commands.json`,需 Ninja 生成器 + `CMAKE_EXPORT_COMPILE_COMMANDS=ON`):
 
 1. **分析报告**(不带 `--target`):按 `output` 字段中的 `CMakeFiles/<target>.dir/` 把每条编译记录归入 target,收集各 target 的源文件、include 路径(`-I`/`/I`/`-isystem`,**原样采用不做过滤**)、`-D` 宏定义与语言标准;控制台打印报告,并写 `<output>/cmake_targets_report.json`。
-2. **target 级生成**(`--target <名>`):对该 target 的全部 .cpp(或,加 `--parse-headers` 时,其注解头文件),用其 include 路径/宏/标准逐个解析,合并去重后一次生成到 `-o` 目录。任一文件解析失败即抛异常终止。
+2. **target 级生成**(`--target <名>`):对该 target 的全部 .cpp(或,`parse_headers` 开启时,其注解头文件),用其 include 路径/宏/标准逐个解析,合并去重后一次生成到 `-o` 目录。任一文件解析失败即抛异常终止。
 
-3. **`--parse-headers`(.h-as-source)**:不再解析 .cpp,改为扫描 target 各 .cpp 所在目录(递归,可加 `-p` 附加根)下的 `.h/.hpp/.hxx/.hh`,**文本预筛**含注解标记(默认 `CLASS(`、`STRUCT(`、`ENUM_CLASS(`,可用 TOML `header_markers` 覆盖)的头文件后逐个解析。使用约定:
+3. **`parse_headers`(.h-as-source)**:不再解析 .cpp,改为扫描 target 各 .cpp 所在目录(递归,可加 `-p` 附加根)下的 `.h/.hpp/.hxx/.hh`,**文本预筛**含注解标记(默认 `CLASS(`、`STRUCT(`、`ENUM_CLASS(`,可用 TOML `header_markers` 覆盖)的头文件后逐个解析。使用约定:
 
    - **头文件自包含**:单独立编译必须通过(否则报错,消息中会说明该约定);
    - **头文件不 include 生成物**、注解只写在头文件里(.cpp 内注解的类型不会被收集);
    - 好处:解析输入与生成物消费者(.cpp)是两个不相交的集合,首次生成永远不因生成物缺失而失败;一个头只解析一次,天然去重。
 
-   典型用法:
+   典型用法(在项目根、MSVC 环境下;`aternyx_parser.toml` 内 `parse_headers = true`、`gen_path_style = "camel_case"`):
 
    ```bat
-   AternyxParser.exe --cmake build\compile_commands.json --target NyxCoreUtils -o Source\_Generated -t Template --parse-headers --gen-path-style camel_case
+   AternyxParser.exe build\compile_commands.json --target NyxCoreUtils -o Source\_Generated -t Template --toml aternyx_parser.toml
    ```
-
-   (不再需要 `-p Source` 参与 include 拼写——拼写根自动取自 target 的 `-I`。)
 
 典型用法(在项目根、MSVC 环境下):
 
 ```bat
-AternyxParser.exe --cmake build\compile_commands.json -o _gen_report
-AternyxParser.exe --cmake build\compile_commands.json --target NyxCoreUtils -o Source\_Generated -t Template -i Source --gen-path-style camel_case
+AternyxParser.exe build\compile_commands.json -o _gen_report
+AternyxParser.exe build\compile_commands.json --target NyxCoreUtils -o Source\_Generated -t Template -i Source
 ```
 
 **bootstrap / 首跑安全**:若手写代码要 include 生成物,推荐 `__has_include` 守卫,首次构建(生成物尚不存在)自动跳过,后续构建正常生效:
@@ -200,17 +197,19 @@ AternyxParser.exe --cmake build\compile_commands.json --target NyxCoreUtils -o S
 #endif
 ```
 
-配合 `--parse-headers` 时,源 .cpp include 生成物完全不影响解析(解析只碰头文件)。`YAML::convert<T>` 特化链(T 的成员也需特化时)现在由生成器自动满足:生成文件自带对其依赖生成物的 include(见 §4"gen→gen 依赖")。若手写代码想一次拿到全部生成文件,仍可 include `all_include.gen.h`。
+配合 `parse_headers` 时,源 .cpp include 生成物完全不影响解析(解析只碰头文件)。`YAML::convert<T>` 特化链(T 的成员也需特化时)现在由生成器自动满足:生成文件自带对其依赖生成物的 include(见 §4"gen→gen 依赖")。若手写代码想一次拿到全部生成文件,仍可 include `all_include.gen.h`。
 
-**CMake 集成(推荐)**:仓库提供 `cmake/AternyxMetaParser.cmake` 的 `aternyx_target_codegen(<target> ...)` 函数,把上述流程挂进构建:编译前自动跑 codegen(stamp 依赖:目标源文件 + compile_commands.json + 解析器),并把输出目录加入该 target 的 include 路径——"输出路径"与"include 路径"在同一个地方决定。完整示例见 `example/cmake_integration/`。
+**CMake 集成(推荐,也是唯一推荐的接入方式)**:仓库提供 `cmake/AternyxMetaParser.cmake` 的 `aternyx_target_codegen(<target> ...)` 函数,把上述流程挂进构建:编译前自动跑 codegen(stamp 依赖:目标源文件 + compile_commands.json + 解析器),并把输出目录加入该 target 的 include 路径——"输出路径"与"include 路径"在同一个地方决定。完整示例见 `example/cmake_integration/`。
 
 ```cmake
 include(<AternyxMetaParser仓库>/cmake/AternyxMetaParser.cmake)
 aternyx_target_codegen(my_target
   PARSER <AternyxParser可执行文件>
   TEMPLATE_DIR <模板目录>
-  OUTPUT_DIR ${CMAKE_BINARY_DIR}/generated
-  PARSE_HEADERS)
+  OUTPUT_DIR ${CMAKE_BINARY_DIR}/generated   # 可选,默认 <build>/generated
+  PROJECT_ROOT <目录>                        # 可选,parse_headers 附加扫描根
+  CONFIG <工程无关配置.toml>                  # 可选,gen_path_style/parse_headers/header_markers
+  EXTRA_INCLUDE_PATHS <目录>...)              # 可选,追加 include 路径
 ```
 
 注意:多目标时给每个目标单独的 `OUTPUT_DIR`(每次生成按目标重写 `all_include.gen.h`);INTERFACE/umbrella 目标在 compile db 中无条目,不支持。
@@ -224,7 +223,7 @@ aternyx_target_codegen(my_target
 5. 模板类(`CXCursor_ClassTemplate`)、函数内/`extern "C"` 内的类型不收集。
 6. `EditorUi.mustache` 无条件写 `v.is_dirty = true`(类型需有该成员);`ObjectHandleSerialization.mustache` 的 decode 有误。
 7. 生成结果不校验合法性(不编译、无 schema 检查)。
-8. `--parse-headers` 只收集文本含注解标记的头:仅在 .cpp 中注解的类型不会被收集;头文件必须自包含(约定,解析失败会显式报错)。
+8. `parse_headers` 只收集文本含注解标记的头:仅在 .cpp 中注解的类型不会被收集;头文件必须自包含(约定,解析失败会显式报错)。
 
 ## 9. 目录速览
 

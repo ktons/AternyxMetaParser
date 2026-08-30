@@ -8,7 +8,8 @@ AternyxParser，生成目录同时加入该目标的 include 路径——"输出
 
 ```
 cmake_integration/
-├── CMakeLists.txt   # aternyx_target_codegen(example_app ... PARSE_HEADERS)
+├── CMakeLists.txt        # aternyx_target_codegen(example_app ... CONFIG aternyx_parser.toml)
+├── aternyx_parser.toml   # 工程无关配置（此处开启 parse_headers）
 └── src/
     ├── my_types.h   # 自包含、被注解的头文件（.h-as-source 的解析输入）
     └── main.cpp     # 消费方；__has_include 守卫演示首跑安全
@@ -37,14 +38,14 @@ build/generated/serialization/all_include.gen.h
 
 ## 要点
 
-- `PARSE_HEADERS`：只解析注解头文件（文本预筛含 `CLASS(`/`STRUCT(`/`ENUM_CLASS(`
-  的 .h），不解析 .cpp——头文件按约定不 include 生成物，因此首跑不会因生成物
-  缺失而失败。
+- `parse_headers`（`aternyx_parser.toml`）：只解析注解头文件（文本预筛含
+  `CLASS(`/`STRUCT(`/`ENUM_CLASS(` 的 .h），不解析 .cpp——头文件按约定不
+  include 生成物，因此首跑不会因生成物缺失而失败。注解头不在 target 源文件
+  同目录时，用 `PROJECT_ROOT` 补充扫描根。
 - 生成文件对 `my_types.h` 的 include 拼写取自 target 的 include 目录
   （compile_commands.json），在编译该目标时按构造可解析。
-- 生成的序列化代码依赖 yaml-cpp 等运行时头（内置 prelude，见
-  `docs/MetaParser.md` 的 prelude 配置）。本示例只演示构建接线，不编译生成
-  代码；要在真实项目里消费，请把 `main.cpp` 注释中的 `__has_include` 模式与
-  运行时依赖一并接入。
+- 生成的序列化代码依赖 yaml-cpp 等运行时头（内置 prelude）。本示例只演示
+  构建接线，不编译生成代码；要在真实项目里消费，请把 `main.cpp` 注释中的
+  `__has_include` 模式与运行时依赖一并接入。
 - 多目标时请给每个目标单独的 `OUTPUT_DIR`：每次生成会按目标重写
   `all_include.gen.h` 聚合器。

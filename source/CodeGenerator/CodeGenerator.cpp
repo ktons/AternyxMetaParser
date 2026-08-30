@@ -62,9 +62,7 @@ static const std::vector<TempInfo> kTempConfigList = {
 
 // Built-in per-category prelude includes injected into each category's
 // all_include.gen.h. Per-file generated headers assume the category
-// aggregator (or an equivalent prelude) is included first. A
-// CodegenConfig.preIncludes entry replaces these for that category, so a
-// consumer project can declare its own runtime dependencies.
+// aggregator (or an equivalent prelude) is included first.
 static const std::unordered_map<TempType, std::vector<std::string>> kDefaultPreIncludeFiles = {
     {
         TempType::SERIALIZATION,
@@ -356,8 +354,6 @@ fs::path CodeGenerator::ResolveOutputDir(TempType tempType) const {
 }
 
 const std::vector<std::string>& CodeGenerator::PreludeFor(TempType tempType) const {
-  if (auto it = config_.preIncludes.find(tempType); it != config_.preIncludes.end())
-    return it->second;
   return kDefaultPreIncludeFiles.at(tempType);
 }
 

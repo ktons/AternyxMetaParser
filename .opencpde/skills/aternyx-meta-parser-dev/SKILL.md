@@ -12,14 +12,14 @@ description: Build, test, and run the AternyxMetaParser tool (C++ libclang meta-
 1. **构建**:MSVC `cl.exe` 没有 `INCLUDE`/`LIB` 环境变量时找不到标准库头文件,直接报 `fatal error C1083: 无法打开包括文件: "iostream"`。
 2. **运行/测试(更阴险)**:libclang 靠 `INCLUDE` 环境变量定位 MSVC STL 头文件。环境缺失时解析不会报错退出——字段名、注解、结构全部正常,**只有字段类型被 clang 错误恢复静默降级为 `int`**,生成代码形似神非。诊断特征:`use of undeclared identifier 'std'`、golden 测试里 `as<std::string>()` 断言失败、debug 输出里 `[name:int]`。
 
-任何终端(Git Bash、非 VS 启动的 shell)统一用本 skill 的辅助脚本包一层:
+任何终端(Git Bash、非 VS 启动的 shell)统一用仓库的辅助脚本包一层:
 
 ```bash
-# 用法: vs_env.bat <任意命令及其参数>
-cmd //c "F:\Project\AternyxMetaParser\.agents\skills\aternyx-meta-parser-dev\scripts\vs_env.bat cmake --build F:\Project\AternyxMetaParser\build\ninja-debug-msvc"
+# 用法: vs_run.bat <任意命令及其参数>
+cmd //c "F:\Project\AternyxMetaParser\build\vs_run.bat cmake --build F:\Project\AternyxMetaParser\build\ninja-debug-msvc"
 ```
 
-脚本内部用 vswhere 自动定位 Visual Studio(回退 `F:\DevKit\Visual Studio 2026`)并调用 `vcvars64.bat`,再执行传入的命令。直接在 VS Developer PowerShell/命令提示符里工作时不需要这层包装。
+脚本内部调用 `vcvars64.bat`(VS 位于 `F:\DevKit\Visual Studio 2026`)初始化环境,再执行传入的命令。`build/` 下还有 `run_build.bat`(构建)、`run_test.bat`(ctest)两个现成入口。直接在 VS Developer PowerShell/命令提示符里工作时不需要这层包装。
 
 ## 构建
 
@@ -36,22 +36,23 @@ cmake --build build/ninja-debug-msvc
 ctest --test-dir build/ninja-debug-msvc --output-on-failure
 ```
 
-- 共 70 个用例,由 `gtest_discover_tests` 注册;`WORKING_DIRECTORY` 固定为仓库根,测试靠 `fs::current_path()` 定位 `example/`、`Template/`。
+- 共 66 个用例,由 `gtest_discover_tests` 注册;`WORKING_DIRECTORY` 固定为仓库根,测试靠 `fs::current_path()` 定位 `example/`、`Template/`。
 - 单跑一个:`ctest --test-dir build/ninja-debug-msvc -R VerifySerializationContent --output-on-failure`,或直接跑 exe(必须 cwd=仓库根):`./build/bin/AternyxParserTests.exe --gtest_filter=CodeGeneratorTest.VerifySerializationContent`。
 - **golden 测试 `CodeGeneratorTest.VerifySerializationContent` 是字段准确性的唯一防线**:解析 example → 生成 → 子串断言 `_generated_test/serialization/user_struct.gen.h` 的字段名/类型/Runtime 过滤/editor_ui 命中。它失败时先怀疑 MSVC 环境(见上),再看产物内容。
 - 测试 `TearDown` 会删除 `_generated_test/`;想人工看产物,用主工具生成到别的目录(见下)。
 
 ## 运行解析器
 
+唯一入口是编译数据库(compile_commands.json);没有手动单文件模式:
+
 ```bash
-# cwd 建议为仓库根;-p 传项目根,否则生成文件的 #include 行为空 "#include \"\""
-build/bin/AternyxParser.exe example/main.cpp -o _generated -t Template -i example -p .
-# cmake 模式:分析编译数据库各 target 的 include 路径;--target 对指定 target 生成
-build/bin/AternyxParser.exe --cmake <项目>/build/compile_commands.json -o _gen_report
-build/bin/AternyxParser.exe --cmake <项目>/build/compile_commands.json --target <目标名> -o <输出> -t Template -p <项目源根> -i <项目源根> --gen-path-style camel_case
+# 分析编译数据库各 target 的 include 路径(缺省只出报告)
+build/bin/AternyxParser.exe <项目>/build/compile_commands.json -o _gen_report
+# --target 对指定 target 生成
+build/bin/AternyxParser.exe <项目>/build/compile_commands.json --target <目标名> -o <输出> -t Template
 ```
 
-参数:`--codegen`(默认)codegen 模式,`<source_file>` 主源文件;`--cmake` cmake 模式,`<input>` 为 compile_commands.json 或其目录,`--target` 指定生成目标(缺省只出报告);`-o` 输出目录(默认 `_generated`);`-t` 模板目录;`-i` include 路径(一次可传多个,cmake 模式下作为 target 路径的补充);`-p` 项目根;`--gen-path-style {snake_case,camel_case}` 生成子目录风格(默认 snake_case);`--toml` 配置文件。输出落到 `<o>/serialization|editor_ui|reflection/*.gen.h`(camel_case 时为 `Serialization|EditorUi|Reflection`)。解析错误(缺 include 等)会抛异常并以非 0 退出码结束。
+参数:`<input>` 为 compile_commands.json 或其目录;`--target` 指定生成目标(缺省只出报告);`-o` 输出目录(默认 `_generated`);`-t` 模板目录;`-i` include 路径(一次可传多个,作为 target 路径的补充,同时是生成文件 `#include` 拼写的候选根);`-p` parse_headers 模式的附加扫描根;`--toml` 工程无关配置文件(`gen_path_style` 生成子目录风格、`parse_headers` 解析注解头、`header_markers` 注解头预筛标记,见 `example/params.toml`)。输出落到 `<o>/serialization|editor_ui|reflection/*.gen.h`(camel_case 时为 `Serialization|EditorUi|Reflection`)。解析错误(缺 include 等)会抛异常并以非 0 退出码结束。
 
 ## 速查
 
@@ -64,7 +65,7 @@ build/bin/AternyxParser.exe --cmake <项目>/build/compile_commands.json --targe
 
 - **gen→gen 依赖自动 include**:源文件(传递)包含的注解头若有生成物,生成文件自动 include 之(`gen_include_list`,libclang `clang_getInclusions` 收集)。相关:`Parser.cpp` 的 `CollectInclusions` → `TargetCodegen.cpp` 的 `sourceIncludes` → `CodeGenerator.cpp` 的 `RenderJob`。
 - **字段类型自动全限定**:生成代码里的项目类型全部带命名空间(`as<Aternyx::Guid>()`),实现见 `MetaInfo.cpp` 的 `AstTree::ResolveRegisteredTypeName`(注册表五级解析,歧义取最长命名空间前缀+stderr 警告)。
-- 改动生成逻辑后,对真实项目验证:用 `--cmake ... --target <名>` 生成到临时目录 diff,别直接覆盖项目 `_Generated`。
+- 改动生成逻辑后,对真实项目验证:用 `--target <名>` 生成到临时目录 diff,别直接覆盖项目 `_Generated`。
 
 ## libclang 已知坑(踩过的)
 

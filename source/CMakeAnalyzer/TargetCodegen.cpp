@@ -71,7 +71,6 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
   CodegenConfig config;
   config.outputPath = options.outputPath;
   config.templatePath = options.templatePath;
-  config.projectPath = options.projectPath;
   config.pathStyle = options.pathStyle;
   // The spelling of the generated `#include` lines is derived ONLY from the
   // include roots the target compiles with, so generated files resolve their
@@ -80,7 +79,6 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
   // target include root then fail loudly instead of producing includes that
   // the consumer cannot resolve.
   config.includeRoots = includePaths;
-  config.preIncludes = options.preIncludes;
   config.sourceIncludes = std::move(sourceIncludes);
 
   CodeGenerator generator;

@@ -30,9 +30,9 @@ target_include_directories(example_app PRIVATE
 )
 
 # Parse the annotated headers of this target and generate reflection code
-# into build/generated as part of the build.
+# into build/generated as part of the build. parse_headers mode (and other
+# project-independent settings) comes from the TOML passed via CONFIG.
 aternyx_target_codegen(example_app
   PARSER "${ATERNYX_PARSER_EXE}"
   TEMPLATE_DIR "${ATERNYX_META_PARSER_ROOT}/Template"
-  PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}"
-  PARSE_HEADERS)
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/aternyx_parser.toml")
