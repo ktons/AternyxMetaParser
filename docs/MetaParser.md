@@ -41,9 +41,21 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 
 - 收集 `StructDecl / ClassDecl / EnumDecl` 的定义(前置声明仅用于注册类型名,辅助字段类型补全);
 - 提取:类型注解、基类(`CXXBaseSpecifier`)、字段(`FieldDecl`)、成员方法(`CXXMethod`)、字段级注解;
-- 字段类型名经 `AstTree::GetTypeName` 规范化(注册表 + 命名空间补全);
+- 字段类型名经 `AstTree::GetTypeName` **全限定重写**(见下);
 - 入树条件:有注解且有字段,或为枚举;无注解的类型只注册名字、不入树;
 - 修复记录:旧实现(扁平状态机)会丢失"每个子树最后一个类型"(曾被 `VerifyDataBlockFields` 测试实证),现版本收集完成立即入树。
+
+### 字段类型全限定(2026-08-30)
+
+生成代码活在陌生命名空间语境里(如 `namespace YAML`),源码里的简写类型(`Guid`、`std::vector<Guid>`)直接照搬会编译失败。现版本对字段/基类类型拼写做**标识符 token 级重写**:只把项目内类型(已注册全限定名的)替换为全限定拼写,`const`/`*`/`&`/数组括号/模板标点原样保留,`uint64_t`、`std::string` 等非项目类型不动。解析顺序:
+
+1. 拼写本身已是注册全限定名 → 原样;
+2. 声明类型的命名空间链(由内到外,保持 C++ 名字遮蔽语义);
+3. 注册表中以该拼写为后缀的名字(部分限定,如 `Resource::AssetMetaInfo`);
+4. 简单名在注册表唯一 → 直接用;多候选 → 取与声明命名空间共享前缀最长者(并列取字典序,stderr 警告),确定性可编译;
+5. 均未命中 → 原样保留。
+
+模板实参逐个解析(`std::vector<Guid>` → `std::vector<Aternyx::Guid>`)。TU 内先于字段访问到的类型(含 include 带入的)都会注册,靠值使用的字段所需类型必然可见。
 
 ## 4. 代码生成(CodeGenerator)
 
@@ -69,7 +81,16 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 2. **相对兜底**:头文件不在任何根下时,拼写 = 相对生成文件自身目录(利用编译器对 `""` include 先搜包含者所在目录的规则,零配置可解析)。
 3. 全程正斜杠(修复 Windows 反斜杠进 `#include` 的转义隐患);路径根无关(如跨盘)时直接报错,绝不产出 `#include ""`。
 
-`-p/--project-path` 不再参与 include 拼写(弃用):拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。cmake 模式下 `-p` 仅作为 `--parse-headers` 的附加扫描根。`gen_include_list`(gen→gen 依赖,如 `*_visit_ui.gen.h` 引用同源 `*_variant.gen.h`)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
+`-p/--project-path` 不再参与 include 拼写(弃用):拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。cmake 模式下 `-p` 仅作为 `--parse-headers` 的附加扫描根。`gen_include_list`(gen→gen 依赖)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
+
+### gen→gen 依赖(include 图,2026-08-30)
+
+生成代码引用的 `convert<T>` 等特化不在源头头文件里,而在**其依赖类型的生成物**里。因此生成器现在自动维护生成物之间的 include:
+
+- 每个源文件解析时用 `clang_getInclusions` 收集其**传递包含**的全部头文件;
+- 某生成文件的 `gen_include_list` = 同源兄弟产物 ∪ 「源文件(传递)包含的头文件中,凡有生成产物的」那些产物;排除自身,按相对本文件目录拼写(跨类别自动 `../`)。
+
+效果:源文件 include 了带注解的头(直接或经由公共头),其生成物自动 include 对应生成物——`AssetMetaInfo.gen.h` 自动带上 `Guid.gen.h`,不再要求手工 include `all_include.gen.h` 来满足特化链可见性。实现注意:`clang_getInclusions` 必须在 `CXTranslationUnit_DetailedPreprocessingRecord` 下才有数据(见 `Parser.cpp`)。
 
 **序列化生成示例**(`example/user_struct.h` → `serialization/user_struct.gen.h`):
 
@@ -95,7 +116,7 @@ struct convert<UserStruct::ClassA> {
 };
 ```
 
-字段名、字段类型、`Runtime` 字段过滤均准确;嵌套结构体靠 `YAML::convert` 特化的链式查找生效。
+字段名、字段类型(自动全限定)、`Runtime` 字段过滤均准确;嵌套结构体靠 `YAML::convert` 特化的链式查找生效。生成文件头部还有 `gen_include_list` 段自动带入其依赖的生成物(见上文"gen→gen 依赖")。
 
 ## 5. 运行环境要求(重要)
 
@@ -117,10 +138,10 @@ struct convert<UserStruct::ClassA> {
 - **Warning** → 打印到 stderr,不中断。
 - 这保证"include 解析失败 / 字段类型被错误恢复降级"这类问题**第一时间暴露**,不会静默产出形似神非的生成代码。
 
-## 6. 测试(test/,GTest,经 ctest 注册共 68 个用例)
+## 6. 测试(test/,GTest,经 ctest 注册共 70 个用例)
 
 - 由 `gtest_discover_tests` 注册到 ctest,`WORKING_DIRECTORY` 为仓库根(测试通过 `fs::current_path()` 定位 `example/`、`Template/`)。
-- 覆盖:Cursor 封装、ArgConfig、libclang 冒烟、Parser 字段解析(`VerifyClassAFields`、`VerifyDataBlockFields`)、CodeGenerator 端到端、include 拼写策略(`UtilsTest`、`IncludeSpelling*`、`GenIncludeList*`)、cmake 模式(`TargetCodegenTest`,含 `--parse-headers`)。
+- 覆盖:Cursor 封装、ArgConfig、libclang 冒烟、Parser 字段解析(`VerifyClassAFields`、`VerifyDataBlockFields`、字段类型全限定 `QualifiesFieldTypeNames`)、CodeGenerator 端到端、include 拼写策略(`UtilsTest`、`IncludeSpelling*`、`GenIncludeList*`)、cmake 模式(`TargetCodegenTest`,含 `--parse-headers`、gen→gen 依赖 `GeneratedOutputIncludesOutputsOfIncludedHeaders`)。
 - **golden 内容测试 `CodeGeneratorTest.VerifySerializationContent`**:解析 example → 生成 → 对 `_generated_test/serialization/user_struct.gen.h` 做子串断言(字段名、`as<类型>()`、`convert<全限定名>`、Runtime 字段被排除),并校验 editor_ui 输出。这是唯一守住"字段准确"的防线。
 - 注意:测试只断言生成文本,不编译生成代码。
 
@@ -179,7 +200,7 @@ AternyxParser.exe --cmake build\compile_commands.json --target NyxCoreUtils -o S
 #endif
 ```
 
-配合 `--parse-headers` 时,源 .cpp include 生成物完全不影响解析(解析只碰头文件)。另外,`YAML::convert<T>` 特化链(T 的成员也需特化时)要求所有相关 gen.h 在实例化点可见——让源码 include `all_include.gen.h` 即可聚合全部生成文件。
+配合 `--parse-headers` 时,源 .cpp include 生成物完全不影响解析(解析只碰头文件)。`YAML::convert<T>` 特化链(T 的成员也需特化时)现在由生成器自动满足:生成文件自带对其依赖生成物的 include(见 §4"gen→gen 依赖")。若手写代码想一次拿到全部生成文件,仍可 include `all_include.gen.h`。
 
 **CMake 集成(推荐)**:仓库提供 `cmake/AternyxMetaParser.cmake` 的 `aternyx_target_codegen(<target> ...)` 函数,把上述流程挂进构建:编译前自动跑 codegen(stamp 依赖:目标源文件 + compile_commands.json + 解析器),并把输出目录加入该 target 的 include 路径——"输出路径"与"include 路径"在同一个地方决定。完整示例见 `example/cmake_integration/`。
 
@@ -198,7 +219,7 @@ aternyx_target_codegen(my_target
 
 1. **成员方法序列化模板有误**:`Serialization.mustache` 对 `function_list` 生成 `node["x"] = v.x;`(取函数指针,无法编译),decode 完全忽略方法。
 2. **枚举底层类型硬编码 `uint32_t`**,且枚举常量名不解析;`ENUM_CLASS` 宏丢弃指定的底层类型。
-3. **类型系统薄弱**:无类型分类(map/optional/智能指针/数组未处理);类型名规范化是字符串启发式,多参数模板内层不逐个补全;const/指针/引用未处理。不支持的类型会原样进模板,依赖 yaml-cpp 内建转换,失败时生成代码编译不过且生成器无校验。
+3. **类型分类仍薄弱**:无类型分类(map/optional/智能指针/数组未处理);字段类型全限定重写是注册表字符串匹配(见 §3),跨 TU 前向声明后才定义的类型、匿名命名空间等边角场景可能解析不到而原样保留;不支持的类型会原样进模板,依赖 yaml-cpp 内建转换,失败时生成代码编译不过且生成器无校验。
 4. **属性只有无值标签**,不支持 `rename/skip/default` 等 key=value。
 5. 模板类(`CXCursor_ClassTemplate`)、函数内/`extern "C"` 内的类型不收集。
 6. `EditorUi.mustache` 无条件写 `v.is_dirty = true`(类型需有该成员);`ObjectHandleSerialization.mustache` 的 decode 有误。

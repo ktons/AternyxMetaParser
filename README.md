@@ -41,6 +41,7 @@
 3. **查看生成结果 Check Output**
    - 查看 `Template/` 目录，了解有哪些模板可用。
    - 运行后，自动生成的代码会在输出目录的 `serialization|Serialization`、`editor_ui|EditorUi`、`reflection|Reflection` 子目录下。
+   - 生成文件自动 include 其依赖类型的生成物（gen→gen 依赖），字段类型自动全限定——无需手工修补即可编译。
    - 解析报错(如 include 失败)会直接抛异常并以非 0 退出码结束,不会静默生成错误代码。
 
 4. **接入构建 CMake Integration**

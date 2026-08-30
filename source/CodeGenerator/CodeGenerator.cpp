@@ -249,7 +249,7 @@ void CodeGenerator::PlanJobs() {
     std::string outFileName = job.fileName + tempConfig.outFileName;
     impl_->generatedFileMap[tempConfig.type].push_back({tempConfig.priorityType, outFileName});
     if (!job.sourceFile.empty() && tempConfig.priorityType != Priority::TYPE_A) {
-      genFilesBySource_[job.sourceFile].push_back(
+      genFilesBySource_[StringLib::NormalizePath(job.sourceFile)].push_back(
           {std::move(outFileName), ResolveOutputDir(tempConfig.type).generic_string()});
     }
   }
@@ -277,19 +277,34 @@ void CodeGenerator::RenderJob(const GenJob& job) {
     includeFileList.push_back({"include_path", filePath});
   data.set("include_file_list", includeFileList);
 
-  // Sibling outputs derived from the same source file (e.g. the variant file
-  // a visit-ui file operates on), referenced relative to this output file.
+  // Generated outputs that must be visible when compiling this output:
+  //   - sibling outputs derived from the same source file (e.g. the variant
+  //     file a visit-ui file operates on),
+  //   - outputs of annotated headers the source file (transitively) includes,
+  //     because generated code references their specializations — the
+  //     `convert<Guid>` used by an emitted `as<Guid>()` lives in the Guid
+  //     output, not in the (already included) Guid source header.
   MustacheData genIncludeList = MustacheData::type::list;
   if (!job.sourceFile.empty()) {
+    const std::string normalizedSource = StringLib::NormalizePath(job.sourceFile);
+    const std::string self = job.fileName + tempConfig.outFileName;
     std::set<std::string> genIncludes;
-    if (auto it = genFilesBySource_.find(job.sourceFile); it != genFilesBySource_.end()) {
-      const std::string self = job.fileName + tempConfig.outFileName;
-      for (const auto& ref : it->second) {
-        if (ref.fileName == self)
-          continue;
-        fs::path rel = (fs::path{ref.dir} / ref.fileName).lexically_relative(outDir);
-        genIncludes.insert(rel.empty() ? ref.fileName : StringLib::GetUnixPath(rel.generic_string()));
+    auto collect = [&](const std::string& sourceKey) {
+      if (auto it = genFilesBySource_.find(sourceKey); it != genFilesBySource_.end()) {
+        for (const auto& ref : it->second) {
+          // Skip this output itself (same name and same output directory —
+          // equal names can occur across category sub-directories).
+          if (ref.fileName == self && ref.dir == outDirString)
+            continue;
+          fs::path rel = (fs::path{ref.dir} / ref.fileName).lexically_relative(outDir);
+          genIncludes.insert(rel.empty() ? ref.fileName : StringLib::GetUnixPath(rel.generic_string()));
+        }
       }
+    };
+    collect(normalizedSource);
+    if (auto it = config_.sourceIncludes.find(normalizedSource); it != config_.sourceIncludes.end()) {
+      for (const auto& includedFile : it->second)
+        collect(includedFile);
     }
     for (auto& spelling : genIncludes)
       genIncludeList.push_back({"gen_include_path", spelling});

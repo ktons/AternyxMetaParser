@@ -6,6 +6,7 @@
 #include "CMakeAnalyzer/HeaderScanner.h"
 #include "CodeGenerator/CodeGenerator.h"
 #include "Parser/Parser.h"
+#include "Utils/Utils.h"
 
 namespace fs = std::filesystem;
 
@@ -47,6 +48,7 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
   }
 
   AstTree mergedTree;
+  std::unordered_map<std::string, std::vector<std::string>> sourceIncludes;
   for (const std::string& sourceFile : sources) {
     MetaParser parser{sourceFile, includePaths, extraClangArgs};
     try {
@@ -61,6 +63,9 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
       throw;
     }
     mergedTree.MergeFrom(std::move(parser.GetAstTree()));
+    // Normalize the key the same way the parser normalizes the inclusion
+    // paths, so CodeGenerator lookups match regardless of spelling.
+    sourceIncludes[StringLib::NormalizePath(sourceFile)] = parser.GetIncludedFiles();
   }
 
   CodegenConfig config;
@@ -76,6 +81,7 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
   // the consumer cannot resolve.
   config.includeRoots = includePaths;
   config.preIncludes = options.preIncludes;
+  config.sourceIncludes = std::move(sourceIncludes);
 
   CodeGenerator generator;
   generator.Init(config);

@@ -160,3 +160,67 @@ TEST_F(MetaParserTest, ExtraArgsOverrideStd) {
 
   fs::remove(tmpPath);
 }
+
+// Field types must be rewritten to fully qualified project types: generated
+// code renders them in a foreign namespace context (e.g. namespace YAML),
+// where the as-written spelling is not visible.
+TEST_F(MetaParserTest, QualifiesFieldTypeNames) {
+  fs::path tmpPath = CreateTempFile(
+      "#pragma once\n"
+      "#include <string>\n"
+      "#include <vector>\n"
+      "#include \"meta/meta_attributes.h\"\n"
+      "namespace Outer {\n"
+      "STRUCT(Widget, Serialization) {\n"
+      "  META() int v;\n"
+      "};\n"
+      "STRUCT(Holder, Serialization) {\n"
+      "  META() Widget w;\n"
+      "  std::vector<Widget> ws;\n"
+      "  Widget* ptr;\n"
+      "  std::string tag;\n"
+      "};\n"
+      "}  // namespace Outer\n");
+
+  std::vector<std::string> include_paths = {project_root_};
+  Aternyx::MetaParser parser(tmpPath.string(), include_paths);
+  parser.BuildCursor();
+  auto& ast = parser.GetAstTree();
+
+  const Aternyx::MetaStruct* holder = nullptr;
+  for (const auto& ms : ast.metaStructList) {
+    if (ms.simpleTypeName == "Holder")
+      holder = &ms;
+  }
+  ASSERT_NE(holder, nullptr) << "Holder was not collected";
+
+  auto FieldType = [&](const char* fieldName) -> const std::string* {
+    for (const auto& f : holder->fields)
+      if (f.name == fieldName)
+        return &f.type;
+    return nullptr;
+  };
+
+  // Simple name in another namespace of the same TU resolves to the unique
+  // registered fully qualified name.
+  const std::string* w = FieldType("w");
+  ASSERT_NE(w, nullptr);
+  EXPECT_EQ(*w, "Outer::Widget");
+
+  // Template arguments are rewritten too.
+  const std::string* ws = FieldType("ws");
+  ASSERT_NE(ws, nullptr);
+  EXPECT_EQ(*ws, "std::vector<Outer::Widget>");
+
+  // Decorations survive the rewrite.
+  const std::string* ptr = FieldType("ptr");
+  ASSERT_NE(ptr, nullptr);
+  EXPECT_EQ(ptr->rfind("Outer::Widget", 0), 0u) << "pointer spelling: " << *ptr;
+
+  // Non-project types pass through unchanged.
+  const std::string* tag = FieldType("tag");
+  ASSERT_NE(tag, nullptr);
+  EXPECT_EQ(*tag, "std::string");
+
+  fs::remove(tmpPath);
+}

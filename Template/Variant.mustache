@@ -2,6 +2,10 @@
 
 #include <variant>
 
+{{#gen_include_list}}
+#include "{{gen_include_path}}"
+{{/gen_include_list}}
+
 {{#meta_type_list}}
 {{#child_type_list}}
 namespace {{child_namespace}} {

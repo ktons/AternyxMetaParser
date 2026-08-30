@@ -2,6 +2,9 @@
 
 #include <clang-c/Index.h>
 #include <iostream>
+#include <set>
+
+#include "Utils/Utils.h"
 
 namespace Aternyx {
 
@@ -9,6 +12,8 @@ struct MetaParser::Impl {
   std::vector<std::string> namespaceStack;
   std::string sourcePath;
   AstTree astTree;
+  // Files transitively included by sourcePath (normalized, deduplicated).
+  std::vector<std::string> includedFiles;
   // NOTE: no "-MG" here. It would turn missing includes into non-fatal
   // warnings and let clang error-recovery silently degrade field types to
   // int; missing includes must be hard errors (see BuildCursor).
@@ -28,6 +33,7 @@ struct MetaParser::Impl {
   void VisitChildren(const Cursor& cursor);
   void VisitNamespace(const Cursor& cursor);
   void VisitTypeDecl(const Cursor& cursor, int kind);
+  void CollectInclusions(CXTranslationUnit translationUnit);
   std::string CurrentNamespace() const;
   void DebugAst();
 };
@@ -64,9 +70,16 @@ void MetaParser::BuildCursor() {
   for (const auto& argument : impl_->extraArguments) {
     arguments.emplace_back(argument.c_str());
   }
-  auto translationUnit = clang_createTranslationUnitFromSourceFile(
-      index, impl_->sourcePath.c_str(), static_cast<int>(arguments.size()), arguments.data(), 0, nullptr);
-  if (translationUnit == nullptr) {
+  // CXTranslationUnit_DetailedPreprocessingRecord is required for
+  // clang_getInclusions: without it the TU keeps no preprocessing record and
+  // querying inclusions is undefined.
+  // Parsed via clang_parseTranslationUnit2 (not the from-source-file helper):
+  // only that entry point accepts CXTranslationUnit_DetailedPreprocessingRecord.
+  CXTranslationUnit translationUnit = nullptr;
+  const CXErrorCode parseError = clang_parseTranslationUnit2(
+      index, impl_->sourcePath.c_str(), arguments.data(), static_cast<int>(arguments.size()), nullptr, 0,
+      CXTranslationUnit_DetailedPreprocessingRecord, &translationUnit);
+  if (parseError != CXError_Success || translationUnit == nullptr) {
     if (index)
       clang_disposeIndex(index);
     throw MetaParseError("Failed to create translation unit for: " + impl_->sourcePath);
@@ -106,6 +119,7 @@ void MetaParser::BuildCursor() {
   auto cursor = clang_getTranslationUnitCursor(translationUnit);
   impl_->namespaceStack.clear();
   impl_->VisitChildren(cursor);
+  impl_->CollectInclusions(translationUnit);
   clang_disposeTranslationUnit(translationUnit);
   if (index) {
     clang_disposeIndex(index);
@@ -115,6 +129,28 @@ void MetaParser::BuildCursor() {
 
 AstTree& MetaParser::GetAstTree() {
   return impl_->astTree;
+}
+
+const std::vector<std::string>& MetaParser::GetIncludedFiles() const {
+  return impl_->includedFiles;
+}
+
+void MetaParser::Impl::CollectInclusions(CXTranslationUnit translationUnit) {
+  // clang_getInclusions also reports the main file itself (empty inclusion
+  // stack) — skip it: only genuinely included files belong in the set.
+  auto visitor = [](CXFile includedFile, CXSourceLocation*, unsigned includeLen, CXClientData clientData) {
+    if (includeLen == 0)
+      return;
+    auto uniqueFiles = static_cast<std::set<std::string>*>(clientData);
+    CXString fileName = clang_getFileName(includedFile);
+    if (const char* name = clang_getCString(fileName); name && *name != '\0') {
+      uniqueFiles->insert(StringLib::NormalizePath(name));
+    }
+    clang_disposeString(fileName);
+  };
+  std::set<std::string> uniqueFiles;
+  clang_getInclusions(translationUnit, visitor, &uniqueFiles);
+  includedFiles.assign(uniqueFiles.begin(), uniqueFiles.end());
 }
 
 void MetaParser::Impl::VisitChildren(const Cursor& cursor) {

@@ -43,6 +43,12 @@ struct CodegenConfig {
   // all_include.gen.h. A present entry (even an empty one) replaces the
   // built-in defaults for that category; absent entries keep the defaults.
   std::unordered_map<TempType, std::vector<std::string>> preIncludes;
+  // Per parsed source file: every file it transitively #includes (normalized
+  // absolute paths). Used to emit `gen_include_list` entries for generated
+  // outputs of included annotated headers — generated code references the
+  // generated specializations of the types it uses, which live in those
+  // outputs, not in the (already included) source headers.
+  std::unordered_map<std::string, std::vector<std::string>> sourceIncludes;
   // Naming style of the generated sub-directories.
   GenPathStyle pathStyle{GenPathStyle::SnakeCase};
 };
@@ -82,7 +88,8 @@ class CodeGenerator {
   std::vector<kainjow::mustache::mustache> tempList_;
   AstTree* astTree_{nullptr};
   std::vector<GenJob> jobs_;
-  // Planned outputs per declaring source file (per-file templates only).
+  // Planned outputs per declaring source file (per-file templates only;
+  // keyed by the normalized source file path).
   std::unordered_map<std::string, std::vector<GenOutputRef>> genFilesBySource_;
   std::unordered_map<MetaStruct*, kainjow::mustache::data> metaStructDataMap_;
 

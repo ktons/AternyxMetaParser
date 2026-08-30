@@ -1,5 +1,8 @@
 #pragma once
 
+{{#gen_include_list}}
+#include "{{gen_include_path}}"
+{{/gen_include_list}}
 {{#include_file_list}}
 #include "{{include_path}}"
 {{/include_file_list}}

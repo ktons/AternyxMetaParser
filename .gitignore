@@ -22,3 +22,6 @@ CMakeFiles/
 .cache/
 .cursor/
 test_detail.xml_Generated/
+!/cmake/*.cmake
+
+.zcode

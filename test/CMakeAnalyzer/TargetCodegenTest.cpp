@@ -25,6 +25,13 @@ void WriteFile(const fs::path& path, const std::string& content) {
   ofs.close();
 }
 
+std::string ReadFile(const fs::path& path) {
+  std::ifstream ifs(path, std::ios::binary);
+  std::stringstream buffer;
+  buffer << ifs.rdbuf();
+  return buffer.str();
+}
+
 // Builds a compile db for `files` under one target and analyzes it.
 Aternyx::CMake::CMakeTarget AnalyzeTarget(const fs::path& projectRoot, const fs::path& repoRoot,
                                           const std::vector<std::string>& files,
@@ -200,6 +207,56 @@ TEST_F(TargetCodegenTest, HonorsPathStyle) {
   Aternyx::CMake::RunTargetCodegen(target, options);
 
   EXPECT_TRUE(fs::exists(output_dir_ / "Serialization" / "entity.gen.h"));
+}
+
+// A generated output must include the generated outputs of the annotated
+// headers its source includes (their specializations — e.g. convert<Item> —
+// live there, not in the already-included source header), and property types
+// must be spelled fully qualified so they resolve from the generated
+// namespace context.
+TEST_F(TargetCodegenTest, GeneratedOutputIncludesOutputsOfIncludedHeaders) {
+  fs::path project = CreateTempDir("target_codegen_geninc_");
+  WriteFile(project / "item.h",
+            "#pragma once\n"
+            "#include \"meta/meta_attributes.h\"\n"
+            "namespace Zone {\n"
+            "STRUCT(Item, Serialization) {\n"
+            "  META() int count;\n"
+            "};\n"
+            "}  // namespace Zone\n");
+  WriteFile(project / "box.h",
+            "#pragma once\n"
+            "#include \"item.h\"\n"
+            "#include <vector>\n"
+            "namespace Zone {\n"
+            "STRUCT(Box, Serialization) {\n"
+            "  META() Item item;\n"
+            "  std::vector<Item> items;\n"
+            "};\n"
+            "}  // namespace Zone\n");
+  WriteFile(project / "tu.cpp", "#include \"box.h\"\nint main() { return 0; }\n");
+
+  auto target = AnalyzeTarget(project, repo_root_, {"tu.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.projectPath = project.string();
+  options.parseHeaders = true;
+  Aternyx::CMake::RunTargetCodegen(target, options);
+
+  const std::string box = ReadFile(output_dir_ / "serialization" / "box.gen.h");
+  ASSERT_TRUE(fs::exists(output_dir_ / "serialization" / "box.gen.h"));
+  // box.h includes item.h, whose generated output carries the Item
+  // specialization this file's decode code relies on.
+  EXPECT_NE(box.find("#include \"item.gen.h\""), std::string::npos)
+      << "box.gen.h must include the generated output of the included item.h";
+  // Property types must be fully qualified: the generated code lives in
+  // namespace YAML where the unqualified spelling is not visible.
+  EXPECT_NE(box.find("as<Zone::Item>()"), std::string::npos);
+  EXPECT_NE(box.find("as<std::vector<Zone::Item>>()"), std::string::npos);
+
+  const std::string item = ReadFile(output_dir_ / "serialization" / "item.gen.h");
+  EXPECT_EQ(item.find("item.gen.h"), std::string::npos) << "a generated file must not include itself";
 }
 
 // AstTree::MergeFrom: deduplication and derivedTypeIndex remapping.

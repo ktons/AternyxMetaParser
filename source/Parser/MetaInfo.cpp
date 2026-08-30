@@ -1,6 +1,7 @@
 #include "Parser/MetaInfo.h"
 
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <unordered_set>
 
@@ -102,32 +103,149 @@ void AstTree::MergeFrom(AstTree&& other) {
   other.metaStructMap_.clear();
 }
 
-std::string AstTree::GetTypeName(const std::string& typeName) {
-  std::string finalTypeName;
-  InnerGetTypeName(typeName, finalTypeName);
-  return finalTypeName;
-}
-
-void AstTree::InnerGetTypeName(const std::string& fullTypeName, std::string& finalTypeName) {
-  size_t tempIndex = fullTypeName.find('<');
-  if (tempIndex != std::string::npos) {
-    std::string currentTypeName = fullTypeName.substr(0, tempIndex);
-    finalTypeName += GetFullTypeName(currentTypeName);
-    finalTypeName += '<';
-    size_t tempEndIndex = fullTypeName.find_last_of('>') - 1;
-    std::string leftTypeName = fullTypeName.substr(tempIndex + 1, tempEndIndex - tempIndex);
-    InnerGetTypeName(leftTypeName, finalTypeName);
-    finalTypeName += fullTypeName.substr(tempEndIndex + 1, -1);
-  } else if (!fullTypeName.empty()) {
-    finalTypeName += GetFullTypeName(fullTypeName);
+std::string AstTree::GetTypeName(const std::string& typeName) const {
+  // Rewrite every identifier token of the spelling through the registry,
+  // leaving all punctuation and decorations (`<`, `,`, `*`, `&`, `const`,
+  // array brackets, ...) untouched. Reading `ident(::ident)*` as one token
+  // keeps `std::vector` from being split into `std` + `vector`.
+  std::string result;
+  const size_t size = typeName.size();
+  auto isIdentStart = [](char c) {
+    return std::isalpha(static_cast<unsigned char>(c)) || c == '_';
+  };
+  auto isIdentChar = [&](char c) { return isIdentStart(c) || std::isdigit(static_cast<unsigned char>(c)); };
+  size_t i = 0;
+  while (i < size) {
+    if (isIdentStart(typeName[i])) {
+      size_t end = i + 1;
+      while (end < size && isIdentChar(typeName[end]))
+        ++end;
+      // Extend over namespace qualifiers: `::` must be followed by an
+      // identifier for the token to continue.
+      while (end + 1 < size && typeName[end] == ':' && typeName[end + 1] == ':' && end + 2 < size &&
+             isIdentStart(typeName[end + 2])) {
+        end += 2;
+        while (end < size && isIdentChar(typeName[end]))
+          ++end;
+      }
+      result += ResolveRegisteredTypeName(typeName.substr(i, end - i));
+      i = end;
+    } else {
+      result += typeName[i];
+      ++i;
+    }
   }
+  return result;
 }
 
-std::string AstTree::GetFullTypeName(const std::string& typeName) {
-  std::string nameWithNamespace = currentNamespace + "::" + typeName;
-  if (typeNameSet_.contains(nameWithNamespace))
-    return nameWithNamespace;
-  else
-    return typeName;
+namespace {
+
+std::string SimpleNameOf(const std::string& name) {
+  const size_t qualifierEnd = name.rfind("::");
+  return qualifierEnd == std::string::npos ? name : name.substr(qualifierEnd + 2);
+}
+
+std::vector<std::string> SplitComponents(const std::string& name) {
+  std::vector<std::string> components;
+  size_t pos = 0;
+  while (!name.empty()) {
+    const size_t next = name.find("::", pos);
+    components.push_back(name.substr(pos, next == std::string::npos ? std::string::npos : next - pos));
+    if (next == std::string::npos)
+      break;
+    pos = next + 2;
+  }
+  return components;
+}
+
+// Number of leading `::`-separated components `prefix` and `name` share.
+size_t SharedNamespaceDepth(const std::string& prefix, const std::string& name) {
+  const std::vector<std::string> prefixComponents = SplitComponents(prefix);
+  const std::vector<std::string> nameComponents = SplitComponents(name);
+  size_t depth = 0;
+  while (depth < prefixComponents.size() && depth < nameComponents.size() &&
+         prefixComponents[depth] == nameComponents[depth])
+    ++depth;
+  return depth;
+}
+
+}  // namespace
+
+std::string AstTree::ResolveRegisteredTypeName(const std::string& name) const {
+  std::string cacheKey = currentNamespace;
+  cacheKey += '@';
+  cacheKey += name;
+  if (auto it = resolutionCache_.find(cacheKey); it != resolutionCache_.end())
+    return it->second;
+
+  const std::string resolved = [this, &name]() {
+    // 1) Known exactly as written (fully qualified, std::, or builtin).
+    if (typeNameSet_.contains(name))
+      return name;
+
+    // 2) Enclosing namespaces of the declaring type, innermost first —
+    //    normal C++ name hiding: a shadowing type wins over a distant one.
+    if (!currentNamespace.empty()) {
+      const std::vector<std::string> components = SplitComponents(currentNamespace);
+      for (size_t depth = components.size(); depth >= 1; --depth) {
+        std::string candidate;
+        for (size_t c = 0; c < depth; ++c) {
+          if (c > 0)
+            candidate += "::";
+          candidate += components[c];
+        }
+        candidate += "::";
+        candidate += name;
+        if (typeNameSet_.contains(candidate))
+          return candidate;
+      }
+    }
+
+    const std::string simpleName = SimpleNameOf(name);
+
+    // 3) Registered names ending in the written spelling (partial
+    //    qualification, e.g. `Resource::AssetMetaInfo` for
+    //    `Aternyx::Resource::AssetMetaInfo`).
+    std::vector<std::string> candidates;
+    for (const auto& registered : typeNameSet_) {
+      if (registered.size() > name.size() && registered.compare(registered.size() - name.size(), name.size(), name) == 0 &&
+          registered[registered.size() - name.size() - 1] == ':')
+        candidates.push_back(registered);
+    }
+    // 4) Fall back to the simple name.
+    if (candidates.empty()) {
+      for (const auto& registered : typeNameSet_) {
+        if (SimpleNameOf(registered) == simpleName)
+          candidates.push_back(registered);
+      }
+    }
+    if (!candidates.empty()) {
+      std::sort(candidates.begin(), candidates.end());
+      if (candidates.size() == 1)
+        return candidates.front();
+      // Ambiguous simple name: the candidate sharing the longest namespace
+      // prefix with the declaring type wins; ties go to the lexicographically
+      // first (candidates are sorted, so strictly-greater keeps the first).
+      std::string best = candidates.front();
+      const size_t bestDepth = SharedNamespaceDepth(currentNamespace, best);
+      for (const auto& candidate : candidates) {
+        const size_t depth = SharedNamespaceDepth(currentNamespace, candidate);
+        if (depth > bestDepth)
+          best = candidate;
+      }
+      std::cerr << "[AstTree] warning: ambiguous type name '" << name << "' in namespace '"
+                << (currentNamespace.empty() ? "::" : currentNamespace) << "', resolved to '" << best << "' (candidates:";
+      for (const auto& candidate : candidates)
+        std::cerr << " '" << candidate << "'";
+      std::cerr << ")" << std::endl;
+      return best;
+    }
+
+    // 5) Not a project type (std::, uint64_t, ...) — keep as written.
+    return name;
+  }();
+
+  resolutionCache_.emplace(std::move(cacheKey), resolved);
+  return resolved;
 }
 }  // namespace Aternyx

@@ -24,10 +24,14 @@ class MetaParser {
   ~MetaParser();
   MetaParser(const MetaParser&) = delete;
   MetaParser& operator=(const MetaParser&) = delete;
-  // Parses the translation unit and collects the annotated AST.
-  // Throws MetaParseError when clang reports error-severity diagnostics.
-  void BuildCursor();
-  AstTree& GetAstTree();
+   // Parses the translation unit and collects the annotated AST.
+   // Throws MetaParseError when clang reports error-severity diagnostics.
+   void BuildCursor();
+   AstTree& GetAstTree();
+   // Every file the parsed source transitively #includes (normalized absolute
+   // paths, forward slashes, deduplicated, main file excluded). Empty until
+   // BuildCursor() ran.
+   const std::vector<std::string>& GetIncludedFiles() const;
 
  private:
   struct Impl;

@@ -36,7 +36,7 @@ cmake --build build/ninja-debug-msvc
 ctest --test-dir build/ninja-debug-msvc --output-on-failure
 ```
 
-- 共 19 个用例,由 `gtest_discover_tests` 注册;`WORKING_DIRECTORY` 固定为仓库根,测试靠 `fs::current_path()` 定位 `example/`、`Template/`。
+- 共 70 个用例,由 `gtest_discover_tests` 注册;`WORKING_DIRECTORY` 固定为仓库根,测试靠 `fs::current_path()` 定位 `example/`、`Template/`。
 - 单跑一个:`ctest --test-dir build/ninja-debug-msvc -R VerifySerializationContent --output-on-failure`,或直接跑 exe(必须 cwd=仓库根):`./build/bin/AternyxParserTests.exe --gtest_filter=CodeGeneratorTest.VerifySerializationContent`。
 - **golden 测试 `CodeGeneratorTest.VerifySerializationContent` 是字段准确性的唯一防线**:解析 example → 生成 → 子串断言 `_generated_test/serialization/user_struct.gen.h` 的字段名/类型/Runtime 过滤/editor_ui 命中。它失败时先怀疑 MSVC 环境(见上),再看产物内容。
 - 测试 `TearDown` 会删除 `_generated_test/`;想人工看产物,用主工具生成到别的目录(见下)。
@@ -57,5 +57,17 @@ build/bin/AternyxParser.exe --cmake <项目>/build/compile_commands.json --targe
 
 - 功能全景、模板清单、已知限制:**`docs/MetaParser.md`**(读它,别重新考古)。
 - 标注宏:`meta/meta_attributes.h`(`CLASS/STRUCT/ENUM_CLASS/META`,展开为 annotate attribute)。
-- 解析核心:`source/Parser/Parser.cpp`(作用域感知递归收集);生成核心:`source/CodeGenerator/CodeGenerator.cpp`(模板注册表 `kTempConfigList`,属性匹配大小写不敏感)。
+- 解析核心:`source/Parser/Parser.cpp`(作用域感知递归收集;含 TU 包含文件收集 `CollectInclusions`);生成核心:`source/CodeGenerator/CodeGenerator.cpp`(模板注册表 `kTempConfigList`,属性匹配大小写不敏感)。
 - 模板:`Template/*.mustache`;示例输入:`example/user_struct.h`。
+
+## 生成行为要点(2026-08-30)
+
+- **gen→gen 依赖自动 include**:源文件(传递)包含的注解头若有生成物,生成文件自动 include 之(`gen_include_list`,libclang `clang_getInclusions` 收集)。相关:`Parser.cpp` 的 `CollectInclusions` → `TargetCodegen.cpp` 的 `sourceIncludes` → `CodeGenerator.cpp` 的 `RenderJob`。
+- **字段类型自动全限定**:生成代码里的项目类型全部带命名空间(`as<Aternyx::Guid>()`),实现见 `MetaInfo.cpp` 的 `AstTree::ResolveRegisteredTypeName`(注册表五级解析,歧义取最长命名空间前缀+stderr 警告)。
+- 改动生成逻辑后,对真实项目验证:用 `--cmake ... --target <名>` 生成到临时目录 diff,别直接覆盖项目 `_Generated`。
+
+## libclang 已知坑(踩过的)
+
+- `clang_getInclusions` **必须**在 `CXTranslationUnit_DetailedPreprocessingRecord` 下调用(本仓库经 `clang_parseTranslationUnit2` 传该标志;`clang_createTranslationUnitFromSourceFile` 无 options 参数),否则静默返回空甚至读野指针。
+- 该 API 的回调 clientData 类型必须与实际传入对象严格一致——曾把 `std::set` 强转成 `std::vector*` 调 `emplace_back`,堆损坏以 SEH 0xc0000005 崩在测试里,且无该标志时 visitor 不被调用、问题被完全掩盖。
+- 回调也会以空 inclusion stack(len==0)报告**主文件本身**,收集时需跳过。
