@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <clang-c/Index.h>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -14,12 +15,14 @@ namespace fs = std::filesystem;
 static Aternyx::CodegenConfig MakeConfig(const std::string& outputPath,
                                          const std::string& templatePath,
                                          const std::string& projectPath,
-                                         Aternyx::GenPathStyle style = Aternyx::GenPathStyle::SnakeCase) {
+                                         Aternyx::GenPathStyle style = Aternyx::GenPathStyle::SnakeCase,
+                                         const std::vector<std::string>& includeRoots = {}) {
   Aternyx::CodegenConfig config;
   config.outputPath = outputPath;
   config.templatePath = templatePath;
   config.projectPath = projectPath;
   config.pathStyle = style;
+  config.includeRoots = includeRoots;
   return config;
 }
 
@@ -175,6 +178,115 @@ TEST_F(CodeGeneratorTest, VerifySerializationContent) {
   EXPECT_NE(ui_content.find("ImGuiUtilityInternal<UserStruct::DataBlock>"), std::string::npos);
   EXPECT_NE(ui_content.find("OnEditGui(\"a\", v.a)"), std::string::npos);
   EXPECT_NE(ui_content.find("OnEditGui(\"name\", v.name)"), std::string::npos);
+}
+
+// The include spelling for the analyzed header is derived from the include
+// roots: the deepest root containing the header wins, and the spelling is
+// relative to it.
+TEST_F(CodeGeneratorTest, IncludeSpellingUsesDeepestRoot) {
+  auto ast = ParseExample();
+  ASSERT_FALSE(ast.metaStructList.empty());
+
+  Aternyx::CodeGenerator generator;
+  generator.Init(MakeConfig(output_path_, template_path_, project_root_, Aternyx::GenPathStyle::SnakeCase,
+                            {example_path_, project_root_}));
+  generator.SetAstTree(&ast);
+  generator.Run();
+
+  const std::string content =
+      ReadFileContent((fs::path(output_path_) / "serialization" / "user_struct.gen.h").string());
+  // Both roots contain example/user_struct.h; the deeper one (example/) wins.
+  EXPECT_NE(content.find("#include \"user_struct.h\""), std::string::npos);
+  EXPECT_EQ(content.find("example/user_struct.h"), std::string::npos)
+      << "the shallower root must not win the spelling";
+}
+
+// Without any include roots the include falls back to a path relative to the
+// generated file's own directory (resolvable through the compiler's
+// quoted-include "directory of the including file first" rule) and always
+// uses forward slashes.
+TEST_F(CodeGeneratorTest, IncludeSpellingFallsBackRelativeToOutput) {
+  auto ast = ParseExample();
+  ASSERT_FALSE(ast.metaStructList.empty());
+
+  Aternyx::CodeGenerator generator;
+  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.SetAstTree(&ast);
+  generator.Run();
+
+  const std::string content =
+      ReadFileContent((fs::path(output_path_) / "serialization" / "user_struct.gen.h").string());
+  EXPECT_NE(content.find("#include \"../../example/user_struct.h\""), std::string::npos);
+  EXPECT_EQ(content.find('\\'), std::string::npos)
+      << "backslashes must never appear in generated includes";
+}
+
+// Generated files must not hard-code output-root-relative paths (the old
+// VisitEditorUi defect) nor contain backslashes.
+TEST_F(CodeGeneratorTest, NoHardcodedGeneratedIncludePaths) {
+  auto ast = ParseExample();
+  ASSERT_FALSE(ast.metaStructList.empty());
+
+  Aternyx::CodeGenerator generator;
+  generator.Init(MakeConfig(output_path_, template_path_, project_root_));
+  generator.SetAstTree(&ast);
+  generator.Run();
+
+  ASSERT_TRUE(fs::exists(output_path_));
+  for (const auto& entry : fs::recursive_directory_iterator(output_path_)) {
+    if (entry.path().extension() != ".h")
+      continue;
+    const std::string content = ReadFileContent(entry.path().string());
+    EXPECT_EQ(content.find("_generated/"), std::string::npos)
+        << "hard-coded generated path in " << entry.path().filename().string();
+    EXPECT_EQ(content.find('\\'), std::string::npos)
+        << "backslash in " << entry.path().filename().string();
+  }
+}
+
+// gen_include_list: a per-file output references the sibling outputs derived
+// from the same source file, spelled relative to its own directory.
+TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
+  const std::string sourceFile = (fs::path(project_root_) / "example" / "base.h").string();
+
+  Aternyx::AstTree ast;
+  Aternyx::MetaStruct base;
+  base.kind = CXCursor_StructDecl;
+  base.typeName = "Mini::Root";
+  base.simpleTypeName = "Root";
+  base.sourceFilePath = sourceFile;
+  base.attributes = {"Variant", "VisitEditorUi"};
+  base.derivedTypeIndex = {1u};
+  ast.metaStructList.push_back(std::move(base));
+
+  Aternyx::MetaStruct derived;
+  derived.kind = CXCursor_StructDecl;
+  derived.typeName = "Mini::Leaf";
+  derived.simpleTypeName = "Leaf";
+  derived.sourceFilePath = sourceFile;
+  derived.baseTypeName = "Mini::Root";
+  ast.metaStructList.push_back(std::move(derived));
+
+  Aternyx::CodeGenerator generator;
+  generator.Init(MakeConfig(output_path_, template_path_, project_root_, Aternyx::GenPathStyle::SnakeCase,
+                            {(fs::path(project_root_) / "example").string()}));
+  generator.SetAstTree(&ast);
+  generator.Run();
+
+  // The visit-ui file must reference the variant file of the same source,
+  // relative to its own directory — never through a hard-coded output root.
+  const std::string visitContent =
+      ReadFileContent((fs::path(output_path_) / "editor_ui" / "base_visit_ui.gen.h").string());
+  EXPECT_NE(visitContent.find("#include \"../reflection/base_variant.gen.h\""), std::string::npos);
+  EXPECT_EQ(visitContent.find("_generated/"), std::string::npos);
+
+  // The variant file is generated next to it; the visit-ui file reached it
+  // without any hard-coded output root.
+  const fs::path variantFile = fs::path(output_path_) / "reflection" / "base_variant.gen.h";
+  ASSERT_TRUE(fs::exists(variantFile));
+  const std::string variantContent = ReadFileContent(variantFile.string());
+  EXPECT_EQ(variantContent.find("_generated/"), std::string::npos);
+  EXPECT_EQ(variantContent.find('\\'), std::string::npos);
 }
 
 // The path style option must rename the generated sub-directories while the

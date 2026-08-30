@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <sstream>
 #include <unordered_map>
@@ -17,6 +18,22 @@ using MustacheData = kainjow::mustache::data;
 namespace fs = std::filesystem;
 
 namespace Aternyx {
+
+bool ParseTempTypeCategory(const std::string& name, TempType& out) {
+  if (StringLib::EqualsNoCase(name, "serialization")) {
+    out = TempType::SERIALIZATION;
+    return true;
+  }
+  if (StringLib::EqualsNoCase(name, "editor_ui")) {
+    out = TempType::EDITOR_UI;
+    return true;
+  }
+  if (StringLib::EqualsNoCase(name, "reflection")) {
+    out = TempType::REFLECTION;
+    return true;
+  }
+  return false;
+}
 
 enum class Priority {
   TYPE_A,  // only gen one file. no dependency.
@@ -43,10 +60,16 @@ static const std::vector<TempInfo> kTempConfigList = {
     {"_AllInclude", TempType::NONE, Priority::TYPE_E, "all_include.gen.h"},
 };
 
-static const std::unordered_map<TempType, std::vector<std::string>> kPreIncludeFiles = {
+// Built-in per-category prelude includes injected into each category's
+// all_include.gen.h. Per-file generated headers assume the category
+// aggregator (or an equivalent prelude) is included first. A
+// CodegenConfig.preIncludes entry replaces these for that category, so a
+// consumer project can declare its own runtime dependencies.
+static const std::unordered_map<TempType, std::vector<std::string>> kDefaultPreIncludeFiles = {
     {
         TempType::SERIALIZATION,
-        {"<yaml-cpp/yaml.h>", "\"precompile/core_serialization.h\""},
+        {"<yaml-cpp/yaml.h>", "\"precompile/core_serialization.h\"", "<ucore/struct/object_pool.h>",
+         "\"precompile/component_serialization.h\""},
     },
     {
         TempType::EDITOR_UI,
@@ -54,7 +77,7 @@ static const std::unordered_map<TempType, std::vector<std::string>> kPreIncludeF
     },
     {
         TempType::REFLECTION,
-        {},
+        {"<ucore/struct/object_pool.h>"},
     },
 };
 
@@ -113,21 +136,9 @@ void CodeGenerator::SetAstTree(AstTree* astTree) {
   InitMetaStructGroup();
 }
 
-std::vector<MetaStruct*>& CodeGenerator::TryGetMetaStructGroup(const std::string& key) {
-  for (auto& group : metaStructGroups_) {
-    if (group.first == key)
-      return group.second;
-  }
-  metaStructGroups_.push_back({key, {}});
-  return metaStructGroups_.back().second;
-}
-
 void CodeGenerator::InitMetaStructGroup() {
   for (auto& metaStruct : astTree_->metaStructList) {
-    MetaStruct* pMetaStruct = &metaStruct;
-    auto& group = TryGetMetaStructGroup(metaStruct.sourceFilePath);
-    group.push_back(pMetaStruct);
-    CreateMetaStructData(pMetaStruct);
+    CreateMetaStructData(&metaStruct);
   }
 }
 
@@ -176,115 +187,163 @@ void CodeGenerator::CreateMetaStructData(Aternyx::MetaStruct* metaStruct) {
 }
 
 void CodeGenerator::Run() {
-  {
-    for (const auto& tempName : impl_->tempTypeAList) {
-      if (tempMap_.at(tempName) == -1)
-        continue;
-      std::vector<MetaStruct*> matchedMetaStructList;
-      for (auto& metaStruct : astTree_->metaStructList) {
-        if (GetAttribute(metaStruct.attributes, tempName))
-          matchedMetaStructList.push_back(&metaStruct);
-      }
-      if (!matchedMetaStructList.empty())
-        GenFileByMetaStructList(tempName, "", matchedMetaStructList);
-    }
-  }
-  {
-    std::string filePath;
-    std::string fileName;
-    std::unordered_map<std::string, std::vector<MetaStruct*>> attributeMetaStructGroup;
+  PlanJobs();
+  for (const auto& job : jobs_)
+    RenderJob(job);
+  GenAllIncludes();
+}
+
+void CodeGenerator::PlanJobs() {
+  jobs_.clear();
+  impl_->generatedFileMap.clear();
+  genFilesBySource_.clear();
+
+  // TYPE_A templates aggregate every annotated type of the whole run into a
+  // single output file (e.g. enum_cast.gen.h).
+  for (const auto& tempName : impl_->tempTypeAList) {
+    if (tempMap_.at(tempName) == -1)
+      continue;
+    std::vector<MetaStruct*> matchedMetaStructList;
     for (auto& metaStruct : astTree_->metaStructList) {
-      if (filePath != metaStruct.sourceFilePath) {
-        for (auto& [attribute, metaStructList] : attributeMetaStructGroup) {
-          if (!tempMap_.contains(attribute) || tempMap_.at(attribute) == -1 ||
-              impl_->tempTypeAList.contains(attribute))
-            continue;
-          GenFileByMetaStructList(attribute, fileName, metaStructList);
-        }
-        attributeMetaStructGroup.clear();
-        filePath = metaStruct.sourceFilePath;
-        fileName = fs::path{filePath}.stem().string();
-      }
-      for (auto& attribute : metaStruct.attributes) {
-        attributeMetaStructGroup[StringLib::ToLower(attribute)].push_back(&metaStruct);
-      }
+      if (GetAttribute(metaStruct.attributes, tempName))
+        matchedMetaStructList.push_back(&metaStruct);
     }
+    if (!matchedMetaStructList.empty())
+      jobs_.push_back({tempName, "", "", std::move(matchedMetaStructList)});
+  }
+
+  // Remaining templates emit one file per source file, aggregating the types
+  // annotated with the template's name. metaStructList is ordered by source
+  // file, so a group ends whenever the file changes.
+  std::string filePath;
+  std::string fileName;
+  std::unordered_map<std::string, std::vector<MetaStruct*>> attributeMetaStructGroup;
+  auto flushGroup = [&]() {
     for (auto& [attribute, metaStructList] : attributeMetaStructGroup) {
-      if (!tempMap_.contains(attribute) || tempMap_.at(attribute) == -1 || impl_->tempTypeAList.contains(attribute))
+      if (!tempMap_.contains(attribute) || tempMap_.at(attribute) == -1 ||
+          impl_->tempTypeAList.contains(attribute))
         continue;
-      GenFileByMetaStructList(attribute, fileName, metaStructList);
+      jobs_.push_back({attribute, fileName, metaStructList.front()->sourceFilePath, metaStructList});
     }
     attributeMetaStructGroup.clear();
+  };
+  for (auto& metaStruct : astTree_->metaStructList) {
+    if (filePath != metaStruct.sourceFilePath) {
+      flushGroup();
+      filePath = metaStruct.sourceFilePath;
+      fileName = fs::path{filePath}.stem().string();
+    }
+    for (auto& attribute : metaStruct.attributes) {
+      attributeMetaStructGroup[StringLib::ToLower(attribute)].push_back(&metaStruct);
+    }
   }
-  {
-    for (auto& [tempType, generatedFiles] : impl_->generatedFileMap) {
-      if (generatedFiles.empty())
-        continue;
-      MustacheData data;
-      MustacheData includeFileList = MustacheData::type::list;
-      auto& preIncludedFiles = kPreIncludeFiles.at(tempType);
-      for (auto& includedFile : preIncludedFiles) {
-        includeFileList.push_back({"include_path", includedFile});
-      }
-      std::sort(generatedFiles.begin(), generatedFiles.end(), [](auto& a, auto& b) { return a.first < b.first; });
-      for (auto& filePair : generatedFiles) {
-        includeFileList.push_back({"include_path", "\"" + filePair.second + "\""});
-      }
-      data.set("include_file_list", includeFileList);
-      GenFile("_AllInclude", "", data, tempType);
+  flushGroup();
+
+  // Pre-register every planned output before rendering anything: the
+  // gen_include_list of one file may reference outputs that are only
+  // rendered later (e.g. a visit-ui file referencing the variant file).
+  for (auto& job : jobs_) {
+    const auto& tempConfig = kTempConfigList[tempMap_.at(StringLib::ToLower(job.tempName))];
+    if (tempConfig.type == TempType::NONE)
+      continue;
+    std::string outFileName = job.fileName + tempConfig.outFileName;
+    impl_->generatedFileMap[tempConfig.type].push_back({tempConfig.priorityType, outFileName});
+    if (!job.sourceFile.empty() && tempConfig.priorityType != Priority::TYPE_A) {
+      genFilesBySource_[job.sourceFile].push_back(
+          {std::move(outFileName), ResolveOutputDir(tempConfig.type).generic_string()});
     }
   }
 }
 
-void CodeGenerator::GenFileByMetaStructList(const std::string& tempName,
-                                            const std::string& fileName,
-                                            const std::vector<MetaStruct*>& metaStructList) {
+void CodeGenerator::RenderJob(const GenJob& job) {
+  auto tempIndex = tempMap_.at(StringLib::ToLower(job.tempName));
+  const auto& tempConfig = kTempConfigList[tempIndex];
+  const fs::path outDir = ResolveOutputDir(tempConfig.type);
+  const std::string outDirString = outDir.generic_string();
+
   MustacheData data;
   MustacheData metaTypeList = MustacheData::type::list;
-  std::unordered_set<std::string> includeFiles;
-  for (auto& pMetaStruct : metaStructList) {
+  // std::set keeps the include list sorted and free of duplicates, so the
+  // output is deterministic regardless of AST ordering.
+  std::set<std::string> includeFiles;
+  for (auto& pMetaStruct : job.metaStructList) {
     metaTypeList.push_back(metaStructDataMap_.at(pMetaStruct));
-    includeFiles.insert(StringLib::GetRelativePath(pMetaStruct->sourceFilePath, config_.projectPath));
+    includeFiles.insert(
+        StringLib::MakeIncludeSpelling(pMetaStruct->sourceFilePath, outDirString, config_.includeRoots));
   }
   data.set("meta_type_list", metaTypeList);
   MustacheData includeFileList = MustacheData::type::list;
   for (auto& filePath : includeFiles)
     includeFileList.push_back({"include_path", filePath});
   data.set("include_file_list", includeFileList);
-  GenFile(tempName, fileName, data);
+
+  // Sibling outputs derived from the same source file (e.g. the variant file
+  // a visit-ui file operates on), referenced relative to this output file.
+  MustacheData genIncludeList = MustacheData::type::list;
+  if (!job.sourceFile.empty()) {
+    std::set<std::string> genIncludes;
+    if (auto it = genFilesBySource_.find(job.sourceFile); it != genFilesBySource_.end()) {
+      const std::string self = job.fileName + tempConfig.outFileName;
+      for (const auto& ref : it->second) {
+        if (ref.fileName == self)
+          continue;
+        fs::path rel = (fs::path{ref.dir} / ref.fileName).lexically_relative(outDir);
+        genIncludes.insert(rel.empty() ? ref.fileName : StringLib::GetUnixPath(rel.generic_string()));
+      }
+    }
+    for (auto& spelling : genIncludes)
+      genIncludeList.push_back({"gen_include_path", spelling});
+  }
+  data.set("gen_include_list", genIncludeList);
+
+  fs::create_directories(outDir);
+  std::string result = tempList_.at(tempIndex).render(data);
+  std::ofstream ofs{outDir / (job.fileName + tempConfig.outFileName), std::ios::binary};
+  ofs << result << std::endl;
 }
 
-void CodeGenerator::GenFile(const std::string& tempName,
-                            const std::string& fileName,
-                            const kainjow::mustache::data& data,
-                            TempType overrideType) {
-  auto tempIndex = tempMap_.at(StringLib::ToLower(tempName));
-  if (tempIndex == -1) {
-    return;
+void CodeGenerator::GenAllIncludes() {
+  for (auto& [tempType, generatedFiles] : impl_->generatedFileMap) {
+    if (generatedFiles.empty())
+      continue;
+    auto tempIndex = tempMap_.at(StringLib::ToLower("_AllInclude"));
+    const auto& tempConfig = kTempConfigList[tempIndex];
+
+    MustacheData data;
+    MustacheData includeFileList = MustacheData::type::list;
+    for (auto& includedFile : PreludeFor(tempType)) {
+      includeFileList.push_back({"include_path", includedFile});
+    }
+    std::sort(generatedFiles.begin(), generatedFiles.end(), [](auto& a, auto& b) {
+      if (a.first != b.first)
+        return a.first < b.first;
+      return a.second < b.second;
+    });
+    for (auto& filePair : generatedFiles) {
+      // The aggregator lives in the same directory as the files it lists, so
+      // the bare file name is the correct relative spelling.
+      includeFileList.push_back({"include_path", "\"" + filePair.second + "\""});
+    }
+    data.set("include_file_list", includeFileList);
+
+    const fs::path outDir = ResolveOutputDir(tempType);
+    fs::create_directories(outDir);
+    std::string result = tempList_.at(tempIndex).render(data);
+    std::ofstream ofs{outDir / tempConfig.outFileName, std::ios::binary};
+    ofs << result << std::endl;
   }
-  auto& tempConfig = kTempConfigList[tempIndex];
-  auto result = tempList_.at(tempIndex).render(data);
-  std::string outFileName = fileName + tempConfig.outFileName;
-  std::string filePath;
+}
 
-  TempType tempType = overrideType != TempType::NONE ? overrideType : tempConfig.type;
-  if (tempType != TempType::NONE) {
-    const SubDirNames& subDirNames = kSubDirNames.at(tempType);
-    const char* subDir =
-        config_.pathStyle == GenPathStyle::CamelCase ? subDirNames.camel : subDirNames.snake;
-    fs::path dir = fs::path{config_.outputPath} / subDir;
-    if (!fs::exists(dir))
-      fs::create_directories(dir);
-    filePath = (dir / outFileName).string();
-  }
+fs::path CodeGenerator::ResolveOutputDir(TempType tempType) const {
+  const SubDirNames& subDirNames = kSubDirNames.at(tempType);
+  const char* subDir = config_.pathStyle == GenPathStyle::CamelCase ? subDirNames.camel : subDirNames.snake;
+  return fs::path{config_.outputPath} / subDir;
+}
 
-  if (tempConfig.type != TempType::NONE)
-    impl_->generatedFileMap[tempType].push_back({tempConfig.priorityType, outFileName});
-
-  std::ofstream ofs{filePath, std::ios::binary};
-  ofs << result << std::endl;
-  ofs.flush();
-  ofs.close();
+const std::vector<std::string>& CodeGenerator::PreludeFor(TempType tempType) const {
+  if (auto it = config_.preIncludes.find(tempType); it != config_.preIncludes.end())
+    return it->second;
+  return kDefaultPreIncludeFiles.at(tempType);
 }
 
 bool CodeGenerator::GetAttribute(const std::vector<std::string>& attributes, const std::string& attribute) {

@@ -17,6 +17,19 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Copies the TOML [preIncludes] table (category-name keyed) into the
+// TempType-keyed maps used by the generator, warning on unknown categories.
+void ApplyPreludeIncludes(std::unordered_map<Aternyx::TempType, std::vector<std::string>>& out) {
+  for (const auto& [name, files] : ArgConfig::Instance().preIncludes_) {
+    Aternyx::TempType type;
+    if (Aternyx::ParseTempTypeCategory(name, type))
+      out[type] = files;
+    else
+      std::cerr << "[AternyxParser] warning: unknown pre-include category '" << name
+                << "' (expected serialization / editor_ui / reflection)" << std::endl;
+  }
+}
+
 Aternyx::CodegenConfig MakeCodegenConfigFromArgs() {
   const ArgConfig& args = ArgConfig::Instance();
   Aternyx::CodegenConfig config;
@@ -24,6 +37,11 @@ Aternyx::CodegenConfig MakeCodegenConfigFromArgs() {
   config.templatePath = args.templatePath_;
   config.projectPath = args.projectPath_;
   config.pathStyle = args.genPathStyle_;
+  // Candidate roots for spelling generated `#include` lines: the -i paths
+  // (the project root is no longer one — spellings must come from roots the
+  // consuming compilation actually has).
+  config.includeRoots = args.includePaths_;
+  ApplyPreludeIncludes(config.preIncludes);
   return config;
 }
 
@@ -35,6 +53,9 @@ Aternyx::CMake::TargetCodegenOptions MakeTargetCodegenOptionsFromArgs() {
   options.projectPath = args.projectPath_;
   options.pathStyle = args.genPathStyle_;
   options.extraIncludePaths = args.includePaths_;
+  options.parseHeaders = args.parseHeaders_;
+  options.headerMarkers = args.headerMarkers_;
+  ApplyPreludeIncludes(options.preIncludes);
   return options;
 }
 

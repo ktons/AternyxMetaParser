@@ -1,6 +1,8 @@
 #pragma once
 
-#include "_generated/reflection/component_variant.gen.h"
+{{#gen_include_list}}
+#include "{{gen_include_path}}"
+{{/gen_include_list}}
 
 namespace Aternyx::Editor::EditorUi {
 {{#meta_type_list}}

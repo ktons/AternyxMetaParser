@@ -145,6 +145,51 @@ TEST_F(TargetCodegenTest, ThrowsOnParseDiagnostics) {
   EXPECT_THROW(Aternyx::CMake::RunTargetCodegen(target, DefaultOptions()), Aternyx::MetaParseError);
 }
 
+// --parse-headers: the annotated header is parsed directly (no .cpp needed)
+// and the generated include is spelled against the target's include roots,
+// with the deepest root containing the header winning.
+TEST_F(TargetCodegenTest, ParsesHeadersInsteadOfCppFiles) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp", "src/usage.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.projectPath = fixture_root_.string();
+  options.parseHeaders = true;
+  Aternyx::CMake::RunTargetCodegen(target, options);
+
+  fs::path genFile = output_dir_ / "serialization" / "entity.gen.h";
+  ASSERT_TRUE(fs::exists(genFile)) << "serialization/entity.gen.h was not generated";
+  std::ifstream ifs(genFile, std::ios::binary);
+  std::stringstream buffer;
+  buffer << ifs.rdbuf();
+  const std::string content = buffer.str();
+
+  EXPECT_NE(content.find("convert<Mini::Entity>"), std::string::npos);
+  // The target's include roots (-I fixture root, -I repo root) both contain
+  // the header; the deeper one (fixture root) wins.
+  EXPECT_NE(content.find("#include \"types/entity.h\""), std::string::npos);
+  EXPECT_EQ(content.find('\\'), std::string::npos)
+      << "backslashes must never appear in generated includes";
+}
+
+// A header that does not compile standalone must fail loudly in
+// --parse-headers mode: headers must be self-contained and must not include
+// generated files.
+TEST_F(TargetCodegenTest, HeaderModeRejectsNonSelfContainedHeader) {
+  fs::path badProject = CreateTempDir("target_codegen_badheader_");
+  WriteFile(badProject / "bad.h",
+            "#pragma once\n#include \"missing_include_xyz.h\"\nSTRUCT(Bad, Serialization) { META() int v; };\n");
+  WriteFile(badProject / "tu.cpp", "#include \"bad.h\"\nint main() { return 0; }\n");
+
+  auto target = AnalyzeTarget(badProject, repo_root_, {"tu.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.projectPath = badProject.string();
+  options.parseHeaders = true;
+  EXPECT_THROW(Aternyx::CMake::RunTargetCodegen(target, options), std::runtime_error);
+}
+
 // CamelCase style must route the generated files accordingly.
 TEST_F(TargetCodegenTest, HonorsPathStyle) {
   auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});

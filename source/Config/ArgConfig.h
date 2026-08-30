@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -49,6 +50,23 @@ struct ArgConfig {
   // When empty, cmake mode only reports the analyzed targets.
   std::string target_;
 
+  // cmake mode only (--parse-headers): parse annotated headers instead of
+  // the target's .cpp files (.h-as-source). Headers must be self-contained
+  // and must not include generated files, so the first run never fails on
+  // missing outputs.
+  bool parseHeaders_{false};
+
+  // Text markers a header must contain to be parsed in --parse-headers mode
+  // (e.g. "CLASS("). Empty means the built-in defaults.
+  std::vector<std::string> headerMarkers_;
+
+  // Per-category prelude includes injected into each category's
+  // all_include.gen.h, from the TOML [preIncludes] table. Keys are the
+  // category names: serialization / editor_ui / reflection. A key present in
+  // the table (even with an empty array) replaces the built-in defaults for
+  // that category; absent keys keep the defaults.
+  std::map<std::string, std::vector<std::string>> preIncludes_;
+
   // Naming style of the generated sub-directories.
   Aternyx::GenPathStyle genPathStyle_{Aternyx::GenPathStyle::SnakeCase};
 
@@ -76,6 +94,7 @@ struct ArgConfig {
   // Parse and apply configuration from a TOML file. Returns true on
   // success and false on error. Keys are read from the file root and from an
   // optional [parserParams] table. Supported keys: output_path, project_path,
-  // template_path, include_paths, target, gen_path_style.
+  // template_path, include_paths, target, gen_path_style, parse_headers,
+  // header_markers.
   bool ParseTomlConfig(const char* tomlConfigPath);
 };

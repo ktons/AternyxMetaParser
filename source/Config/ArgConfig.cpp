@@ -2,6 +2,7 @@
 
 #include <argparse.hpp>
 #include <iostream>
+#include <optional>
 #include <toml.hpp>
 
 template <typename T>
@@ -56,7 +57,7 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
       .default_value(std::string("_generated"));
 
   parser.add_argument("-p", "--project-path")
-      .help("Project root path, used when generate file which need include other file")
+      .help("Deprecated for include spellings; cmake mode: extra header scan root for --parse-headers")
       .default_value(std::string(""));
 
   parser.add_argument("-t", "--template-path")
@@ -82,6 +83,11 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
   parser.add_argument("--target")
       .help("cmake mode: run code generation for this target instead of only reporting")
       .default_value(std::string{""});
+
+  parser.add_argument("--parse-headers")
+      .help("cmake mode: parse annotated headers instead of the target's .cpp files "
+            "(headers must be self-contained and must not include generated files)")
+      .flag();
 
   parser.add_argument("--gen-path-style")
       .help("Naming style of the generated sub-directories (serialization / editor_ui / reflection)")
@@ -115,6 +121,8 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
   }
 
   target_ = parser.get<std::string>("--target");
+  if (parser.is_used("--parse-headers"))
+    parseHeaders_ = true;
   // choices() already restricted the value; parse it for the enum.
   Aternyx::ParseGenPathStyle(parser.get<std::string>("--gen-path-style"), genPathStyle_);
 
@@ -176,6 +184,40 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
         }
         genPathStyle_ = style;
       }
+
+    if (auto node = findNode("parse_headers"))
+      if (auto v = node->value<bool>())
+        parseHeaders_ = *v;
+
+    if (auto node = findNode("header_markers"))
+      if (auto arr = node->as_array()) {
+        headerMarkers_.clear();
+        for (auto& elem : *arr) {
+          if (auto s = elem.value<std::string>())
+            headerMarkers_.push_back(*s);
+        }
+      }
+
+    const toml::table* preTable = tbl.get_as<toml::table>("preIncludes");
+    if (preTable == nullptr && paramsTable != nullptr)
+      preTable = paramsTable->get_as<toml::table>("preIncludes");
+    if (preTable != nullptr) {
+      auto readList = [&](const toml::node& node) -> std::optional<std::vector<std::string>> {
+        if (auto arr = node.as_array()) {
+          std::vector<std::string> items;
+          for (auto& elem : *arr) {
+            if (auto s = elem.value<std::string>())
+              items.push_back(*s);
+          }
+          return items;
+        }
+        return std::nullopt;
+      };
+      for (auto& [key, value] : *preTable) {
+        if (auto items = readList(value))
+          preIncludes_[std::string{key.str()}] = std::move(*items);
+      }
+    }
 
     return true;
   } catch (const std::exception& e) {
