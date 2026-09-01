@@ -4,6 +4,8 @@
 #include <iostream>
 #include <toml.hpp>
 
+#include "Utils/Utils.h"
+
 template <typename T>
 inline void ApplyParserValue(T& value, const argparse::ArgumentParser& parser, const std::string& paramsName) {
   auto params = parser.get<T>(paramsName);
@@ -31,8 +33,7 @@ bool ArgConfig::Validate() {
 
 void ArgConfig::DebugInfo() {
   std::cout << "output path: " << outputPath_ << std::endl;
-  std::cout << "gen path style: "
-            << (genPathStyle_ == Aternyx::GenPathStyle::CamelCase ? "camel_case" : "snake_case")
+  std::cout << "gen path style: " << (genPathStyle_ == Aternyx::GenPathStyle::CamelCase ? "CamelCase" : "snake_case")
             << std::endl;
   std::cout << "target: " << (target_.empty() ? "<report only>" : target_) << std::endl;
 }
@@ -46,17 +47,13 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
       .nargs(1)
       .store_into(compileDbPath_);
 
-  parser.add_argument("-o", "--output-path")
-      .help("Generator output path")
-      .default_value(std::string("_generated"));
+  parser.add_argument("-o", "--output-path").help("Generator output path").default_value(std::string("_generated"));
 
   parser.add_argument("-p", "--project-path")
       .help("Extra header scan root for parse_headers mode")
       .default_value(std::string(""));
 
-  parser.add_argument("-t", "--template-path")
-      .help("Template directory path")
-      .default_value(std::string("template"));
+  parser.add_argument("-t", "--template-path").help("Template directory path").default_value(std::string("template"));
 
   parser.add_argument("-i", "--include-path").help("Include paths").nargs(argparse::nargs_pattern::any);
 
@@ -112,7 +109,8 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
       if (auto v = node->value<std::string>()) {
         Aternyx::GenPathStyle style = Aternyx::GenPathStyle::SnakeCase;
         if (!Aternyx::ParseGenPathStyle(*v, style)) {
-          std::cerr << "Unknown gen_path_style in TOML: " << *v << std::endl;
+          std::cerr << "Unknown gen_path_style in TOML: " << *v
+                    << Aternyx::StringLib::ToLower(Aternyx::StringLib::Trim(*v)).c_str() << std::endl;
           return false;
         }
         genPathStyle_ = style;
