@@ -12,7 +12,7 @@ enum class GenPathStyle {
   CamelCase,
 };
 
-// Parses a style name ("snake_case" / "camel_case", case-insensitive).
+// Parses a style name ("snake_case" / "CamelCase", case-insensitive).
 // Returns false and leaves `outStyle` untouched when the name is unknown.
 bool ParseGenPathStyle(const std::string& name, GenPathStyle& outStyle);
 

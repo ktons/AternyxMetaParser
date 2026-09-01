@@ -6,7 +6,7 @@
 #     [OUTPUT_DIR <dir>]        # default: ${CMAKE_BINARY_DIR}/generated
 #     [PROJECT_ROOT <dir>]      # extra header scan root for parse_headers mode
 #     [CONFIG <toml>]           # TOML with project-independent settings:
-#                               #   gen_path_style = "snake_case"|"camel_case"
+#                               #   gen_path_style = "snake_case"|"CamelCase"
 #                               #   parse_headers = true|false
 #                               #   header_markers = ["CLASS(", ...]
 #     [EXTRA_INCLUDE_PATHS <dir>...])

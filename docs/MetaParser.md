@@ -160,7 +160,7 @@ AternyxParser.exe <compile_commands.json|目录> [--target <名>] [选项]
 - `-p` `parse_headers` 模式的附加头文件扫描根(**不参与 include 拼写**;拼写根自动取自 target 的 `-I`)。
 - `-i` include 路径,可一次传多个(`-i path1 path2`);追加到 target 自身路径之后。**`-i` 同时是生成文件 `#include` 拼写的候选根**(见上文"include 拼写策略"),把哪些根传进来,生成文件的 include 就以哪个为根。
 - `--target <名>` 对该 target 生成;缺省只输出分析报告。
-- `--toml` 配置文件:工程无关设置,**只读根级键**——`gen_path_style`(生成子目录命名风格,`snake_case` 默认/`camel_case`)、`parse_headers`(解析注解头而非 .cpp)、`header_markers`(注解头文本预筛标记);见 `example/params.toml`。TOML 值覆盖内置默认,命令行选项始终优先。
+- `--toml` 配置文件:工程无关设置,**只读根级键**——`gen_path_style`(生成子目录命名风格,`snake_case` 默认/`CamelCase`)、`parse_headers`(解析注解头而非 .cpp)、`header_markers`(注解头文本预筛标记);见 `example/params.toml`。TOML 值覆盖内置默认,命令行选项始终优先。
 - 任何解析错误(含配置文件错误)都会以异常终结并以非 0 退出码结束(见 §5 诊断行为)。
 
 ### 运行模式
@@ -176,7 +176,7 @@ AternyxParser.exe <compile_commands.json|目录> [--target <名>] [选项]
    - **头文件不 include 生成物**、注解只写在头文件里(.cpp 内注解的类型不会被收集);
    - 好处:解析输入与生成物消费者(.cpp)是两个不相交的集合,首次生成永远不因生成物缺失而失败;一个头只解析一次,天然去重。
 
-   典型用法(在项目根、MSVC 环境下;`aternyx_parser.toml` 内 `parse_headers = true`、`gen_path_style = "camel_case"`):
+   典型用法(在项目根、MSVC 环境下;`aternyx_parser.toml` 内 `parse_headers = true`、`gen_path_style = "CamelCase"`):
 
    ```bat
    AternyxParser.exe build\compile_commands.json --target NyxCoreUtils -o Source\_Generated -t Template --toml aternyx_parser.toml

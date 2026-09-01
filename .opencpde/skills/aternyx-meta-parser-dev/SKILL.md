@@ -52,7 +52,7 @@ build/bin/AternyxParser.exe <项目>/build/compile_commands.json -o _gen_report
 build/bin/AternyxParser.exe <项目>/build/compile_commands.json --target <目标名> -o <输出> -t Template
 ```
 
-参数:`<input>` 为 compile_commands.json 或其目录;`--target` 指定生成目标(缺省只出报告);`-o` 输出目录(默认 `_generated`);`-t` 模板目录;`-i` include 路径(一次可传多个,作为 target 路径的补充,同时是生成文件 `#include` 拼写的候选根);`-p` parse_headers 模式的附加扫描根;`--toml` 工程无关配置文件(`gen_path_style` 生成子目录风格、`parse_headers` 解析注解头、`header_markers` 注解头预筛标记,见 `example/params.toml`)。输出落到 `<o>/serialization|editor_ui|reflection/*.gen.h`(camel_case 时为 `Serialization|EditorUi|Reflection`)。解析错误(缺 include 等)会抛异常并以非 0 退出码结束。
+参数:`<input>` 为 compile_commands.json 或其目录;`--target` 指定生成目标(缺省只出报告);`-o` 输出目录(默认 `_generated`);`-t` 模板目录;`-i` include 路径(一次可传多个,作为 target 路径的补充,同时是生成文件 `#include` 拼写的候选根);`-p` parse_headers 模式的附加扫描根;`--toml` 工程无关配置文件(`gen_path_style` 生成子目录风格、`parse_headers` 解析注解头、`header_markers` 注解头预筛标记,见 `example/params.toml`)。输出落到 `<o>/serialization|editor_ui|reflection/*.gen.h`(CamelCase 时为 `Serialization|EditorUi|Reflection`)。解析错误(缺 include 等)会抛异常并以非 0 退出码结束。
 
 ## 速查
 

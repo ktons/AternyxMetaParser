@@ -1,8 +1,7 @@
-#include <gtest/gtest.h>
-
 #include <clang-c/Index.h>
 #include <filesystem>
 #include <fstream>
+#include <gtest/gtest.h>
 #include <sstream>
 
 #include "CodeGenerator/CodeGenerator.h"
@@ -126,8 +125,7 @@ TEST_F(CodeGeneratorTest, VerifyGeneratedFilesExist) {
       std::cout << "  Found: " << entry.path().filename() << " (" << file_size << " bytes)" << std::endl;
     }
   }
-  EXPECT_GE(h_file_count, 2)
-      << "Expected at least 2 .h files (all_include + user_struct), found " << h_file_count;
+  EXPECT_GE(h_file_count, 2) << "Expected at least 2 .h files (all_include + user_struct), found " << h_file_count;
 }
 
 // Golden content check: every annotated field of the example types must appear
@@ -141,8 +139,7 @@ TEST_F(CodeGeneratorTest, VerifySerializationContent) {
   generator.SetAstTree(&ast);
   generator.Run();
 
-  std::string serialization_file =
-      (fs::path(output_path_) / "serialization" / "user_struct.gen.h").string();
+  std::string serialization_file = (fs::path(output_path_) / "serialization" / "user_struct.gen.h").string();
   ASSERT_TRUE(fs::exists(serialization_file)) << "serialization/user_struct.gen.h was not generated";
   const std::string content = ReadFileContent(serialization_file);
 
@@ -165,8 +162,7 @@ TEST_F(CodeGeneratorTest, VerifySerializationContent) {
   EXPECT_NE(content.find("std::vector<float>"), std::string::npos);
 
   // Runtime-marked field must be excluded from serialization
-  EXPECT_EQ(content.find("node[\"scratch\"]"), std::string::npos)
-      << "Runtime field 'scratch' must not be serialized";
+  EXPECT_EQ(content.find("node[\"scratch\"]"), std::string::npos) << "Runtime field 'scratch' must not be serialized";
 
   // Multi-attribute annotation "Serialization, EditorUI" must also hit the
   // EditorUi template (case-insensitive, whitespace-trimmed attribute match).
@@ -186,8 +182,8 @@ TEST_F(CodeGeneratorTest, IncludeSpellingUsesDeepestRoot) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::SnakeCase,
-                            {example_path_, project_root_}));
+  generator.Init(
+      MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::SnakeCase, {example_path_, project_root_}));
   generator.SetAstTree(&ast);
   generator.Run();
 
@@ -195,8 +191,7 @@ TEST_F(CodeGeneratorTest, IncludeSpellingUsesDeepestRoot) {
       ReadFileContent((fs::path(output_path_) / "serialization" / "user_struct.gen.h").string());
   // Both roots contain example/user_struct.h; the deeper one (example/) wins.
   EXPECT_NE(content.find("#include \"user_struct.h\""), std::string::npos);
-  EXPECT_EQ(content.find("example/user_struct.h"), std::string::npos)
-      << "the shallower root must not win the spelling";
+  EXPECT_EQ(content.find("example/user_struct.h"), std::string::npos) << "the shallower root must not win the spelling";
 }
 
 // Without any include roots the include falls back to a path relative to the
@@ -215,8 +210,7 @@ TEST_F(CodeGeneratorTest, IncludeSpellingFallsBackRelativeToOutput) {
   const std::string content =
       ReadFileContent((fs::path(output_path_) / "serialization" / "user_struct.gen.h").string());
   EXPECT_NE(content.find("#include \"../../example/user_struct.h\""), std::string::npos);
-  EXPECT_EQ(content.find('\\'), std::string::npos)
-      << "backslashes must never appear in generated includes";
+  EXPECT_EQ(content.find('\\'), std::string::npos) << "backslashes must never appear in generated includes";
 }
 
 // Generated files must not hard-code output-root-relative paths (the old
@@ -237,8 +231,7 @@ TEST_F(CodeGeneratorTest, NoHardcodedGeneratedIncludePaths) {
     const std::string content = ReadFileContent(entry.path().string());
     EXPECT_EQ(content.find("_generated/"), std::string::npos)
         << "hard-coded generated path in " << entry.path().filename().string();
-    EXPECT_EQ(content.find('\\'), std::string::npos)
-        << "backslash in " << entry.path().filename().string();
+    EXPECT_EQ(content.find('\\'), std::string::npos) << "backslash in " << entry.path().filename().string();
   }
 }
 
@@ -266,7 +259,9 @@ TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
   ast.metaStructList.push_back(std::move(derived));
 
   Aternyx::CodeGenerator generator;
-  generator.Init(MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::SnakeCase,
+  generator.Init(MakeConfig(output_path_,
+                            template_path_,
+                            Aternyx::GenPathStyle::SnakeCase,
                             {(fs::path(project_root_) / "example").string()}));
   generator.SetAstTree(&ast);
   generator.Run();
@@ -294,19 +289,15 @@ TEST_F(CodeGeneratorTest, GenPathStyleCamelCase) {
   ASSERT_FALSE(ast.metaStructList.empty());
 
   Aternyx::CodeGenerator generator;
-  generator.Init(
-      MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::CamelCase));
+  generator.Init(MakeConfig(output_path_, template_path_, Aternyx::GenPathStyle::CamelCase));
   generator.SetAstTree(&ast);
   generator.Run();
 
-  const std::string camel_serialization =
-      (fs::path(output_path_) / "Serialization" / "user_struct.gen.h").string();
+  const std::string camel_serialization = (fs::path(output_path_) / "Serialization" / "user_struct.gen.h").string();
   ASSERT_TRUE(fs::exists(camel_serialization)) << "Serialization/user_struct.gen.h was not generated";
-  EXPECT_NE(ReadFileContent(camel_serialization).find("convert<UserStruct::ClassA>"),
-            std::string::npos);
+  EXPECT_NE(ReadFileContent(camel_serialization).find("convert<UserStruct::ClassA>"), std::string::npos);
 
-  const std::string camel_editor_ui =
-      (fs::path(output_path_) / "EditorUi" / "user_struct.gen.h").string();
+  const std::string camel_editor_ui = (fs::path(output_path_) / "EditorUi" / "user_struct.gen.h").string();
   ASSERT_TRUE(fs::exists(camel_editor_ui)) << "EditorUi/user_struct.gen.h was not generated";
 }
 
@@ -314,7 +305,7 @@ TEST_F(CodeGeneratorTest, ParseGenPathStyleNames) {
   Aternyx::GenPathStyle style = Aternyx::GenPathStyle::SnakeCase;
   EXPECT_TRUE(Aternyx::ParseGenPathStyle("snake_case", style));
   EXPECT_EQ(style, Aternyx::GenPathStyle::SnakeCase);
-  EXPECT_TRUE(Aternyx::ParseGenPathStyle("Camel_Case", style));
+  EXPECT_TRUE(Aternyx::ParseGenPathStyle("CamelCase", style));
   EXPECT_EQ(style, Aternyx::GenPathStyle::CamelCase);
   EXPECT_FALSE(Aternyx::ParseGenPathStyle("kebab-case", style));
 }

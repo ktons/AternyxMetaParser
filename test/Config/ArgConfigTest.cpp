@@ -1,7 +1,6 @@
-#include <gtest/gtest.h>
-
 #include <filesystem>
 #include <fstream>
+#include <gtest/gtest.h>
 
 #include "Config/ArgConfig.h"
 
@@ -22,7 +21,9 @@ static void ResetArgConfig() {
 
 class ArgConfigTest : public ::testing::Test {
  protected:
-  void SetUp() override { ResetArgConfig(); }
+  void SetUp() override {
+    ResetArgConfig();
+  }
 
   static fs::path CreateTempToml(const std::string& content) {
     static int counter = 0;
@@ -58,10 +59,14 @@ TEST_F(ArgConfigTest, ParseCompileDbPath) {
 
 TEST_F(ArgConfigTest, ParseNamedOptions) {
   auto& config = ArgConfig::Instance();
-  const char* argv[] = {"AternyxParser", "build/compile_commands.json",
-                        "-o", "custom_output",
-                        "-p", "custom_project",
-                        "-t", "custom_templates"};
+  const char* argv[] = {"AternyxParser",
+                        "build/compile_commands.json",
+                        "-o",
+                        "custom_output",
+                        "-p",
+                        "custom_project",
+                        "-t",
+                        "custom_templates"};
   int argc = 8;
   bool result = config.ParseArgs(argc, const_cast<char**>(argv));
   EXPECT_TRUE(result);
@@ -91,8 +96,7 @@ TEST_F(ArgConfigTest, ParseNoInput) {
 
 TEST_F(ArgConfigTest, ParseTarget) {
   auto& config = ArgConfig::Instance();
-  const char* argv[] = {"AternyxParser", "build/compile_commands.json",
-                        "--target", "NyxCoreUtils", "-o", "out_dir"};
+  const char* argv[] = {"AternyxParser", "build/compile_commands.json", "--target", "NyxCoreUtils", "-o", "out_dir"};
   int argc = 6;
   EXPECT_TRUE(config.ParseArgs(argc, const_cast<char**>(argv)));
   EXPECT_EQ(config.target_, "NyxCoreUtils");
@@ -102,7 +106,7 @@ TEST_F(ArgConfigTest, ParseTarget) {
 TEST_F(ArgConfigTest, ParseTomlStyle) {
   auto& config = ArgConfig::Instance();
   fs::path tomlPath = CreateTempToml(R"toml(
-gen_path_style = "camel_case"
+gen_path_style = "CamelCase"
 )toml");
 
   EXPECT_TRUE(config.ParseTomlConfig(tomlPath.string().c_str()));

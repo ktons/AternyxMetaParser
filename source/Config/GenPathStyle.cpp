@@ -10,7 +10,7 @@ bool ParseGenPathStyle(const std::string& name, GenPathStyle& outStyle) {
     outStyle = GenPathStyle::SnakeCase;
     return true;
   }
-  if (lowered == "camel_case") {
+  if (lowered == "camelcase") {
     outStyle = GenPathStyle::CamelCase;
     return true;
   }
