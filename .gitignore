@@ -24,4 +24,5 @@ CMakeFiles/
 test_detail.xml_Generated/
 !/cmake/*.cmake
 
+_generated
 .zcode
