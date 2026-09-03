@@ -60,7 +60,10 @@ std::string GetRelativePath(const std::string& path, const std::string& rootPath
 }
 
 std::string NormalizePath(const std::string& path) {
-  fs::path candidate{path};
+  // Inputs may carry Windows separators (e.g. from a MSVC compile_commands
+  // entry): treat "\" as a separator on every platform, not just where
+  // fs::path does, so normalization behaves identically everywhere.
+  fs::path candidate{GetUnixPath(path)};
   if (candidate.is_relative())
     candidate = fs::current_path() / candidate;
   std::string normalized = candidate.lexically_normal().generic_string();
@@ -91,7 +94,8 @@ std::optional<std::string> RelativeSpelling(const fs::path& source, const fs::pa
 }
 
 fs::path AbsoluteNormalized(const std::string& path) {
-  fs::path candidate{path};
+  // Same separator contract as NormalizePath: "\" is a separator everywhere.
+  fs::path candidate{GetUnixPath(path)};
   if (candidate.is_relative())
     candidate = fs::current_path() / candidate;
   return candidate.lexically_normal();

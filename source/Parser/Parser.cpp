@@ -1,10 +1,46 @@
 #include "Parser/Parser.h"
 
+#include <algorithm>
+#include <array>
 #include <clang-c/Index.h>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <set>
 
 #include "Utils/Utils.h"
+
+#if defined(__APPLE__)
+namespace {
+
+// libclang runs the clang driver in-process, and that driver never performs
+// the SDK probing the /usr/bin/clang xcrun shim does — without an explicit
+// SDK path every standard-library include fails ('string' file not found).
+// SDKROOT wins when set (same precedence the xcrun shim establishes), then a
+// single `xcrun --show-sdk-path` probe, cached for the process lifetime.
+const std::string* DetectMacosSdkPath() {
+  static const std::string sdkPath = []() -> std::string {
+    if (const char* fromEnv = std::getenv("SDKROOT"); fromEnv && *fromEnv != '\0') {
+      return fromEnv;
+    }
+    FILE* pipe = popen("xcrun --show-sdk-path 2>/dev/null", "r");
+    if (!pipe) {
+      return {};
+    }
+    std::array<char, 512> buffer{};
+    const size_t bytesRead = fread(buffer.data(), 1, buffer.size() - 1, pipe);
+    const int status = pclose(pipe);
+    buffer[bytesRead] = '\0';
+    if (status != 0) {
+      return {};
+    }
+    return Aternyx::StringLib::Trim(buffer.data());
+  }();
+  return sdkPath.empty() ? nullptr : &sdkPath;
+}
+
+}  // namespace
+#endif
 
 namespace Aternyx {
 
@@ -56,6 +92,21 @@ MetaParser::MetaParser(const std::string& mainSourceFile,
   }
   if (!hasStdArg)
     impl_->arguments.insert(impl_->arguments.begin() + 2, "-std=c++17");
+#if defined(__APPLE__)
+  // A caller-supplied SDK wins (e.g. -isysroot carried by a compile_commands
+  // entry of an AppleClang build) — never inject a second one.
+  const bool callerSetsSdk = std::any_of(
+      extraClangArgs.begin(), extraClangArgs.end(), [](const std::string& argument) {
+        return argument == "-isysroot" || argument.rfind("-isysroot", 0) == 0 ||
+               argument.rfind("--sysroot=", 0) == 0;
+      });
+  if (!callerSetsSdk) {
+    if (const std::string* sdkPath = DetectMacosSdkPath()) {
+      impl_->arguments.push_back("-isysroot");
+      impl_->arguments.push_back(*sdkPath);
+    }
+  }
+#endif
   impl_->extraArguments = extraClangArgs;
 }
 

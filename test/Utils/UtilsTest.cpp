@@ -25,6 +25,16 @@ class ScopedCurrentPath {
   fs::path previous_;
 };
 
+// macOS exposes the temp directory through a symlink (/var -> /private/var):
+// temp_directory_path() yields the logical spelling while current_path() and
+// the path functions under test resolve to the physical one. Canonicalizing
+// the base makes expectations agree on every platform.
+fs::path PhysicalTempDir(const std::string& name) {
+  const fs::path base = fs::temp_directory_path() / name;
+  fs::create_directories(base);
+  return fs::canonical(base);
+}
+
 }  // namespace
 
 TEST(NormalizePathTest, CollapsesAndTrims) {
@@ -39,8 +49,7 @@ TEST(NormalizePathTest, CollapsesAndTrims) {
 }
 
 TEST(NormalizePathTest, ResolvesRelativeAgainstCwd) {
-  const fs::path base = fs::temp_directory_path() / "aternyx_normalize_cwd";
-  fs::create_directories(base);
+  const fs::path base = PhysicalTempDir("aternyx_normalize_cwd");
   ScopedCurrentPath scoped(base);
 
   EXPECT_EQ(Aternyx::StringLib::NormalizePath("src/a.h"), (base / "src" / "a.h").generic_string());
@@ -78,12 +87,20 @@ TEST(MakeIncludeSpellingTest, FallsBackToReferencingDir) {
 }
 
 TEST(MakeIncludeSpellingTest, UnrelatedPathsThrow) {
-  // Purely lexical: different root names never resolve to a relative path,
+#if defined(_WIN32)
+  // Purely lexical: different drive letters never resolve to a relative path,
   // and an empty #include "" must never be produced.
   EXPECT_THROW(Aternyx::StringLib::MakeIncludeSpelling("Z:/elsewhere/a.h", "C:/repo/build/gen", {}),
                std::runtime_error);
   EXPECT_THROW(Aternyx::StringLib::MakeIncludeSpelling("C:/repo/src/a.h", "Z:/other/build/gen", {}),
                std::runtime_error);
+#else
+  // POSIX has no drive roots, so two absolute paths always admit a relative
+  // spelling: "unrelated" trees fall back to a ".."-based path that crosses
+  // the filesystem root, which is valid there.
+  EXPECT_EQ(Aternyx::StringLib::MakeIncludeSpelling("/elsewhere/a.h", "/repo/build/gen", {}),
+            "../../../elsewhere/a.h");
+#endif
 }
 
 TEST(MakeIncludeSpellingTest, MixedSeparatorsAreNormalized) {
@@ -95,7 +112,7 @@ TEST(MakeIncludeSpellingTest, MixedSeparatorsAreNormalized) {
 }
 
 TEST(MakeIncludeSpellingTest, RelativeInputsResolveAgainstCwd) {
-  const fs::path base = fs::temp_directory_path() / "aternyx_spelling_cwd";
+  const fs::path base = PhysicalTempDir("aternyx_spelling_cwd");
   fs::create_directories(base / "build" / "gen");
   ScopedCurrentPath scoped(base);
 
