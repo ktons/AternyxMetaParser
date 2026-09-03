@@ -69,6 +69,25 @@ function(aternyx_target_codegen TARGET_NAME)
 
   set(ATC_STAMP "${ATC_OUTPUT_DIR}/.aternyx_codegen_${TARGET_NAME}.stamp")
 
+  # macOS: libclang 的驱动在进程内不会执行 xcrun 的 SDK 探测（/usr/bin/clang 能找到
+  # SDK 是因为 xcrun 垫片设置了 SDKROOT），解析标准库头前需显式提供 SDK 路径
+  set(_codegen_sdkroot_env "")
+  if(APPLE)
+    if(NOT DEFINED ATERNYX_MACOS_SDKROOT)
+      execute_process(COMMAND xcrun --show-sdk-path
+                      RESULT_VARIABLE _sdkprobe_result
+                      OUTPUT_VARIABLE ATERNYX_MACOS_SDKROOT
+                      OUTPUT_STRIP_TRAILING_WHITESPACE
+                      ERROR_QUIET)
+      if(NOT _sdkprobe_result EQUAL 0 OR NOT ATERNYX_MACOS_SDKROOT)
+        set(ATERNYX_MACOS_SDKROOT "")
+      endif()
+    endif()
+    if(ATERNYX_MACOS_SDKROOT)
+      set(_codegen_sdkroot_env ${CMAKE_COMMAND} -E env SDKROOT=${ATERNYX_MACOS_SDKROOT})
+    endif()
+  endif()
+
   set(_codegen_args
       "${CMAKE_BINARY_DIR}/compile_commands.json"
       --target "${TARGET_NAME}"
@@ -84,10 +103,16 @@ function(aternyx_target_codegen TARGET_NAME)
     list(APPEND _codegen_args -i "${_dir}")
   endforeach()
 
+  set(_codegen_command)
+  if(_codegen_sdkroot_env)
+    list(APPEND _codegen_command ${_codegen_sdkroot_env})
+  endif()
+  list(APPEND _codegen_command "${ATC_PARSER}" ${_codegen_args})
+
   add_custom_command(
     OUTPUT "${ATC_STAMP}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ATC_OUTPUT_DIR}"
-    COMMAND "${ATC_PARSER}" ${_codegen_args}
+    COMMAND ${_codegen_command}
     COMMAND ${CMAKE_COMMAND} -E touch "${ATC_STAMP}"
     DEPENDS "${ATC_PARSER}" "${CMAKE_BINARY_DIR}/compile_commands.json" ${_codegen_sources}
     COMMENT "AternyxMetaParser: generating reflection code for target '${TARGET_NAME}'"

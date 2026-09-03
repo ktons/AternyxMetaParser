@@ -15,8 +15,19 @@ else()
             INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/LLVM/include"
         )
     elseif(APPLE)
+        # vendored 的 LLVM dylib 缺少配套 resource 目录（builtin 头文件），解析时会报
+        # 'stdarg.h' file not found；系统工具链的 libclang 自带 resource 目录，
+        # 且其驱动能自动探测 macOS SDK，无需额外 -isysroot
+        find_library(ATERNYX_SYSTEM_LIBCLANG libclang.dylib
+            HINTS "/Library/Developer/CommandLineTools/usr/lib"
+                  "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib")
+        if(ATERNYX_SYSTEM_LIBCLANG)
+            set(MACOS_LIBCLANG "${ATERNYX_SYSTEM_LIBCLANG}")
+        else()
+            set(MACOS_LIBCLANG "${CMAKE_CURRENT_LIST_DIR}/LLVM/bin/macOS/libclang.dylib")
+        endif()
         set_target_properties(libclang PROPERTIES
-            IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/LLVM/bin/macOS/libclang.dylib"
+            IMPORTED_LOCATION "${MACOS_LIBCLANG}"
             INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/LLVM/include"
         )
     endif()
