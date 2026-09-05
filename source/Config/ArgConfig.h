@@ -1,8 +1,10 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "CodeGenerator/CodeGenerator.h"
 #include "Config/GenPathStyle.h"
 
 // ArgConfig holds command-line options for the parser tool. The tool has a
@@ -44,6 +46,20 @@ struct ArgConfig {
   // Naming style of the generated sub-directories. Settable via TOML
   // `gen_path_style`.
   Aternyx::GenPathStyle genPathStyle_{Aternyx::GenPathStyle::SnakeCase};
+
+  // Codegen registry extensions parsed from TOML (see ParseTomlConfig).
+  // Empty vectors keep the built-in defaults; entries with `remove = true`
+  // land in the removed* lists instead and drop a built-in. Main.cpp merges
+  // all of this over the Default*() registries additively.
+  std::vector<Aternyx::CodegenCategory> codegenCategories_;
+  std::vector<Aternyx::TemplateDesc> codegenTemplates_;
+  std::vector<Aternyx::CodegenAggregator> codegenAggregators_;
+  std::vector<std::string> removedTemplates_;    // lowercased template names
+  std::vector<std::string> removedAggregators_;  // categories whose allinclude is disabled
+  // Per-category allinclude prelude overrides from TOML
+  // (`[codegen_prelude.<category>] includes = [...]`); a configured category
+  // replaces the tool's engine default for that category wholesale.
+  std::unordered_map<std::string, std::vector<std::string>> codegenPreludes_;
 
   // Returns the singleton instance of ArgConfig. This allows convenient
   // global access to parsed options. The instance is lazily constructed.

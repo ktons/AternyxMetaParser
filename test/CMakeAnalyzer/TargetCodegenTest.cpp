@@ -328,3 +328,97 @@ TEST(AstTreeMergeTest, LinksCrossTreeBase) {
   ASSERT_EQ(treeA.metaStructList[0].derivedTypeIndex.size(), 1u);
   EXPECT_EQ(treeA.metaStructList[0].derivedTypeIndex[0], 1u);
 }
+
+// The escape hatch: ParseTargetAst hands the merged AST to the caller, who
+// drives the CodeGenerator (or anything else) themselves.
+TEST_F(TargetCodegenTest, ParseTargetAstAllowsCustomGeneration) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetParseResult parsed = Aternyx::CMake::ParseTargetAst(target, DefaultOptions());
+  ASSERT_FALSE(parsed.tree.metaStructList.empty());
+  ASSERT_FALSE(parsed.sourceIncludes.empty());
+
+  // Drive the CodeGenerator manually with the parsed data.
+  Aternyx::CodegenConfig config;
+  config.outputPath = output_dir_.string();
+  config.templatePath = (fs::path(repo_root_) / "Template").string();
+  config.includeRoots = target.includePaths;
+  config.sourceIncludes = std::move(parsed.sourceIncludes);
+
+  Aternyx::CodeGenerator generator;
+  generator.Init(config);
+  generator.SetAstTree(&parsed.tree);
+  generator.Run();
+
+  ASSERT_TRUE(fs::exists(output_dir_ / "serialization" / "entity.gen.h"));
+}
+
+// Hooks passed to RunTargetCodegen run along the generation pipeline.
+TEST_F(TargetCodegenTest, RunTargetCodegenAppliesHooks) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CodegenHooks hooks;
+  hooks.transformOutput = [](const Aternyx::GenJob& job, std::string content) -> std::optional<std::string> {
+    if (job.outputKind == Aternyx::OutputKind::PerSourceFile)
+      content += "// hook was here\n";
+    return content;
+  };
+
+  Aternyx::CMake::RunTargetCodegen(target, DefaultOptions(), hooks);
+
+  ASSERT_TRUE(fs::exists(output_dir_ / "serialization" / "entity.gen.h"));
+  const std::string content = ReadFile(output_dir_ / "serialization" / "entity.gen.h");
+  EXPECT_NE(content.find("// hook was here"), std::string::npos);
+}
+
+// preludes travel through TargetCodegenOptions into the aggregators.
+TEST_F(TargetCodegenTest, OptionsPreludesReachAggregator) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.preludes["serialization"] = {"<yaml-cpp/yaml.h>"};
+  Aternyx::CMake::RunTargetCodegen(target, options);
+
+  const std::string content = ReadFile(output_dir_ / "serialization" / "all_include.gen.h");
+  EXPECT_NE(content.find("<yaml-cpp/yaml.h>"), std::string::npos);
+}
+
+#ifndef _WIN32
+// The TOML-facing post_process filter: configured on the TemplateDesc, wired
+// by RunTargetCodegen, executed through ProcessUtil.
+TEST_F(TargetCodegenTest, RunTargetCodegenRunsConfiguredPostProcess) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.templates = Aternyx::DefaultTemplates();
+  for (Aternyx::TemplateDesc& desc : options.templates) {
+    if (desc.name == "Serialization")
+      desc.postProcess = "sed 's/Mini/ZMINI/g'";
+  }
+
+  Aternyx::CMake::RunTargetCodegen(target, options);
+
+  const std::string content = ReadFile(output_dir_ / "serialization" / "entity.gen.h");
+  EXPECT_NE(content.find("ZMINI::Entity"), std::string::npos) << "post_process filter output missing";
+  EXPECT_EQ(content.find("Mini::Entity"), std::string::npos) << "unfiltered content must be replaced";
+}
+
+// A failing post_process command must fail the whole generation (fail-fast).
+TEST_F(TargetCodegenTest, FailingPostProcessFailsGeneration) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.templates = Aternyx::DefaultTemplates();
+  for (Aternyx::TemplateDesc& desc : options.templates) {
+    if (desc.name == "Serialization")
+      desc.postProcess = "false";  // exits non-zero immediately
+  }
+
+  EXPECT_THROW(Aternyx::CMake::RunTargetCodegen(target, options), std::runtime_error);
+}
+#endif  // !_WIN32

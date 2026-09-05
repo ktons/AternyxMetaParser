@@ -2,19 +2,62 @@
 
 #include <filesystem>
 #include <stdexcept>
+#include <unordered_map>
 
 #include "CMakeAnalyzer/HeaderScanner.h"
 #include "CodeGenerator/CodeGenerator.h"
 #include "Parser/Parser.h"
+#include "Utils/ProcessUtil.h"
 #include "Utils/Utils.h"
 
 namespace fs = std::filesystem;
 
 namespace Aternyx::CMake {
+namespace {
 
-void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& options) {
+// The include roots the target compiles with: its own paths plus the extra
+// ones. Used both as clang parse inputs and as the spelling roots for the
+// generated `#include` lines.
+std::vector<std::string> TargetIncludePaths(const CMakeTarget& target, const TargetCodegenOptions& options) {
   std::vector<std::string> includePaths = target.includePaths;
   includePaths.insert(includePaths.end(), options.extraIncludePaths.begin(), options.extraIncludePaths.end());
+  return includePaths;
+}
+
+// Applies the per-template `post_process` shell filters from the registry:
+// the configuration-side equivalent of a transformOutput hook. Runs after
+// the caller's transformOutput, so a filter sees the final content. A hook
+// that skips an output also skips its filter.
+void ApplyConfiguredPostProcess(const TargetCodegenOptions& options, Aternyx::CodegenHooks& hooks) {
+  std::unordered_map<std::string, std::string> commands;  // lowercased template name -> filter command
+  for (const Aternyx::TemplateDesc& desc : options.templates) {
+    if (!desc.postProcess.empty())
+      commands[Aternyx::StringLib::ToLower(desc.name)] = desc.postProcess;
+  }
+  if (commands.empty())
+    return;
+
+  auto userHook = std::move(hooks.transformOutput);
+  hooks.transformOutput = [userHook = std::move(userHook), commands = std::move(commands)](
+                              const Aternyx::GenJob& job, std::string content) -> std::optional<std::string> {
+    if (userHook) {
+      std::optional<std::string> transformed = userHook(job, std::move(content));
+      if (!transformed)
+        return std::nullopt;
+      content = std::move(*transformed);
+    }
+    if (auto it = commands.find(job.templateName); it != commands.end())
+      return ProcessUtil::RunFilter(it->second, job.outputName, content);
+    return content;
+  };
+}
+
+}  // namespace
+
+TargetParseResult ParseTargetAst(const CMakeTarget& target, const TargetCodegenOptions& options) {
+  TargetParseResult result;
+
+  const std::vector<std::string> includePaths = TargetIncludePaths(target, options);
 
   std::vector<std::string> extraClangArgs = target.defines;
   if (!target.cxxStandard.empty())
@@ -47,8 +90,6 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
     sources = target.cppFiles;
   }
 
-  AstTree mergedTree;
-  std::unordered_map<std::string, std::vector<std::string>> sourceIncludes;
   for (const std::string& sourceFile : sources) {
     MetaParser parser{sourceFile, includePaths, extraClangArgs};
     try {
@@ -62,11 +103,25 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
       }
       throw;
     }
-    mergedTree.MergeFrom(std::move(parser.GetAstTree()));
+    result.tree.MergeFrom(std::move(parser.GetAstTree()));
     // Normalize the key the same way the parser normalizes the inclusion
     // paths, so CodeGenerator lookups match regardless of spelling.
-    sourceIncludes[StringLib::NormalizePath(sourceFile)] = parser.GetIncludedFiles();
+    result.sourceIncludes[StringLib::NormalizePath(sourceFile)] = parser.GetIncludedFiles();
   }
+
+  return result;
+}
+
+void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& options) {
+  RunTargetCodegen(target, options, Aternyx::CodegenHooks{});
+}
+
+void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& options,
+                      const Aternyx::CodegenHooks& hooks) {
+  Aternyx::CodegenHooks effectiveHooks = hooks;
+  ApplyConfiguredPostProcess(options, effectiveHooks);
+
+  TargetParseResult parsed = ParseTargetAst(target, options);
 
   CodegenConfig config;
   config.outputPath = options.outputPath;
@@ -78,12 +133,16 @@ void RunTargetCodegen(const CMakeTarget& target, const TargetCodegenOptions& opt
   // project root deliberately does not participate: headers outside every
   // target include root then fail loudly instead of producing includes that
   // the consumer cannot resolve.
-  config.includeRoots = includePaths;
-  config.sourceIncludes = std::move(sourceIncludes);
+  config.includeRoots = TargetIncludePaths(target, options);
+  config.sourceIncludes = std::move(parsed.sourceIncludes);
+  config.preludes = options.preludes;
+  config.categories = options.categories;
+  config.templates = options.templates;
+  config.aggregators = options.aggregators;
 
   CodeGenerator generator;
-  generator.Init(config);
-  generator.SetAstTree(&mergedTree);
+  generator.Init(config, std::move(effectiveHooks));
+  generator.SetAstTree(&parsed.tree);
   generator.Run();
 }
 

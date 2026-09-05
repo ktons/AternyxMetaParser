@@ -23,6 +23,42 @@ inline void ApplyParserValue(std::vector<T>& value,
   }
 }
 
+namespace {
+
+// Required string field of a TOML table: fills `out` and returns true on
+// success; reports and returns false when the key is missing or not a string.
+bool RequireString(const toml::table& tbl, const char* key, std::string& out, const std::string& context) {
+  const toml::node* node = tbl.get(key);
+  if (node == nullptr) {
+    std::cerr << "TOML: " << context << " is missing required string key '" << key << "'" << std::endl;
+    return false;
+  }
+  auto value = node->value<std::string>();
+  if (!value) {
+    std::cerr << "TOML: " << context << " key '" << key << "' must be a string" << std::endl;
+    return false;
+  }
+  out = *value;
+  return true;
+}
+
+// Optional string field: fills `out` only when present; reports and returns
+// false when present but not a string.
+bool OptionalString(const toml::table& tbl, const char* key, std::string& out, const std::string& context) {
+  const toml::node* node = tbl.get(key);
+  if (node == nullptr)
+    return true;
+  auto value = node->value<std::string>();
+  if (!value) {
+    std::cerr << "TOML: " << context << " key '" << key << "' must be a string" << std::endl;
+    return false;
+  }
+  out = *value;
+  return true;
+}
+
+}  // namespace
+
 bool ArgConfig::Validate() {
   if (compileDbPath_.empty()) {
     std::cerr << "No compile_commands.json path provided." << std::endl;
@@ -126,6 +162,143 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
         for (auto& elem : *arr) {
           if (auto s = elem.value<std::string>())
             headerMarkers_.push_back(*s);
+        }
+      }
+
+    // --- Codegen registry extensions ---
+    // [[codegen_category]]: register a category or override a built-in by
+    // name (e.g. to change its sub-directory spellings).
+    if (auto node = tbl.get("codegen_category"))
+      if (auto arr = node->as_array()) {
+        for (auto& elem : *arr) {
+          const toml::table* entry = elem.as_table();
+          if (entry == nullptr) {
+            std::cerr << "TOML: codegen_category entries must be tables" << std::endl;
+            return false;
+          }
+          const std::string context = "codegen_category[" + std::to_string(codegenCategories_.size()) + "]";
+          Aternyx::CodegenCategory category;
+          if (!RequireString(*entry, "name", category.name, context))
+            return false;
+          if (!OptionalString(*entry, "snake_dir", category.snakeDir, context))
+            return false;
+          if (category.snakeDir.empty())
+            category.snakeDir = category.name;
+          if (!OptionalString(*entry, "camel_dir", category.camelDir, context))
+            return false;
+          codegenCategories_.push_back(std::move(category));
+        }
+      }
+
+    // [[codegen_template]]: register a template or override a built-in by
+    // name; `remove = true` drops the named built-in instead (an opt-out).
+    if (auto node = tbl.get("codegen_template"))
+      if (auto arr = node->as_array()) {
+        for (auto& elem : *arr) {
+          const toml::table* entry = elem.as_table();
+          if (entry == nullptr) {
+            std::cerr << "TOML: codegen_template entries must be tables" << std::endl;
+            return false;
+          }
+          const std::string context = "codegen_template[" + std::to_string(codegenTemplates_.size()) + "]";
+          std::string name;
+          if (!RequireString(*entry, "name", name, context))
+            return false;
+          if (const toml::node* removeNode = entry->get("remove");
+              removeNode != nullptr && removeNode->value<bool>().value_or(false)) {
+            removedTemplates_.push_back(Aternyx::StringLib::ToLower(name));
+            continue;
+          }
+          Aternyx::TemplateDesc desc;
+          desc.name = name;
+          if (!RequireString(*entry, "category", desc.category, context))
+            return false;
+          if (!RequireString(*entry, "output", desc.outputPattern, context))
+            return false;
+          if (!OptionalString(*entry, "post_process", desc.postProcess, context))
+            return false;
+          if (const toml::node* kindNode = entry->get("kind")) {
+            auto kind = kindNode->value<std::string>();
+            if (!kind) {
+              std::cerr << "TOML: " << context << " key 'kind' must be a string" << std::endl;
+              return false;
+            }
+            if (*kind == "per_source") {
+              desc.outputKind = Aternyx::OutputKind::PerSourceFile;
+            } else if (*kind == "global") {
+              desc.outputKind = Aternyx::OutputKind::GlobalAggregate;
+            } else {
+              std::cerr << "TOML: " << context << " unknown kind '" << *kind
+                        << "' (expected \"per_source\" or \"global\")" << std::endl;
+              return false;
+            }
+          }
+          if (const toml::node* orderNode = entry->get("order")) {
+            auto order = orderNode->value<int64_t>();
+            if (!order) {
+              std::cerr << "TOML: " << context << " key 'order' must be an integer" << std::endl;
+              return false;
+            }
+            desc.order = static_cast<int>(*order);
+          }
+          codegenTemplates_.push_back(std::move(desc));
+        }
+      }
+
+    // [[codegen_aggregator]]: register the allinclude aggregator of a
+    // category or override the built-in one by category; `remove = true`
+    // disables allinclude generation for the category.
+    if (auto node = tbl.get("codegen_aggregator"))
+      if (auto arr = node->as_array()) {
+        for (auto& elem : *arr) {
+          const toml::table* entry = elem.as_table();
+          if (entry == nullptr) {
+            std::cerr << "TOML: codegen_aggregator entries must be tables" << std::endl;
+            return false;
+          }
+          const std::string context = "codegen_aggregator[" + std::to_string(codegenAggregators_.size()) + "]";
+          std::string category;
+          if (!RequireString(*entry, "category", category, context))
+            return false;
+          if (const toml::node* removeNode = entry->get("remove");
+              removeNode != nullptr && removeNode->value<bool>().value_or(false)) {
+            removedAggregators_.push_back(category);
+            continue;
+          }
+          Aternyx::CodegenAggregator aggregator;
+          aggregator.category = category;
+          if (!RequireString(*entry, "template", aggregator.templateName, context))
+            return false;
+          if (!RequireString(*entry, "output", aggregator.outputName, context))
+            return false;
+          codegenAggregators_.push_back(std::move(aggregator));
+        }
+      }
+
+    // [codegen_prelude.<category>]: replaces the tool's engine prelude for
+    // that category wholesale (an explicit empty `includes = []` clears it).
+    if (auto node = tbl.get("codegen_prelude"))
+      if (auto preludeTbl = node->as_table()) {
+        for (auto&& [key, value] : *preludeTbl) {
+          const toml::table* entry = value.as_table();
+          if (entry == nullptr) {
+            std::cerr << "TOML: codegen_prelude." << key.str() << " must be a table with an 'includes' array"
+                      << std::endl;
+            return false;
+          }
+          std::vector<std::string> includes;
+          if (const toml::node* includesNode = entry->get("includes")) {
+            const toml::array* includesArr = includesNode->as_array();
+            if (includesArr == nullptr) {
+              std::cerr << "TOML: codegen_prelude." << key.str() << " key 'includes' must be an array" << std::endl;
+              return false;
+            }
+            for (auto& elem : *includesArr) {
+              if (auto s = elem.value<std::string>())
+                includes.push_back(*s);
+            }
+          }
+          codegenPreludes_[std::string(key.str())] = std::move(includes);
         }
       }
 
