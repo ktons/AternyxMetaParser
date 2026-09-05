@@ -65,6 +65,15 @@ struct TemplateDesc {
   // implements it as a transformOutput step (the CLI exposes it via the TOML
   // `post_process` key). Empty = none.
   std::string postProcess;
+  // Names (matched case-insensitively) of other templates whose outputs this
+  // template's generated code references — e.g. VisitEditorUi operating on
+  // the Variant factory of the same source. `gen_include_list` gathers only
+  // outputs of this template plus its declared deps (same-source siblings
+  // and outputs of transitively included annotated headers alike); outputs
+  // of unrelated templates sharing the same source are left out, keeping
+  // independent templates (e.g. two serialization flavors on one header)
+  // fully decoupled. Empty = this template's outputs only.
+  std::vector<std::string> genIncludeDeps;
 };
 
 // Aggregates every planned output of one category into a single file — the
@@ -199,8 +208,9 @@ class CodeGenerator {
 
   // A planned output referenced from `gen_include_list` template data.
   struct GenOutputRef {
-    std::string fileName;  // e.g. "user_struct.gen.h"
-    std::string dir;       // directory the file is written into
+    std::string fileName;       // e.g. "user_struct.gen.h"
+    std::string dir;            // directory the file is written into
+    std::string templateName;   // lowercased name of the producing template
   };
 
   CodegenConfig config_;

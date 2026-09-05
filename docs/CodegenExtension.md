@@ -54,6 +54,7 @@ output = "_bind.gen.h"
 kind = "per_source"        # 可选: per_source(默认) | global
 order = 100                # 可选,同类别内排序(allinclude 列表顺序)
 post_process = "clang-format --style=file"   # 可选,见 §2.4
+gen_include_deps = ["Other"]                 # 可选,本模板的 gen_include_list 额外可见的模板产物(见 §2.3)
 
 # 禁用内置模板 / 某类别的 allinclude
 [[codegen_template]]
@@ -99,7 +100,7 @@ includes = ["<yaml-cpp/yaml.h>"]
 |---|---|
 | `meta_type_list` | 该任务聚合的全部类型(上表) |
 | `include_file_list` | 源头文件 include 拼写,条目 `include_path`,**不带引号** |
-| `gen_include_list` | gen→gen 依赖(本文件引用的其他生成物),条目 `gen_include_path`,相对本文件目录、**不带引号** |
+| `gen_include_list` | gen→gen 依赖(本文件引用的其他生成物),条目 `gen_include_path`,相对本文件目录、**不带引号**。**按模板亲和过滤(2026-09)**:只含本模板及 `gen_include_deps` 声明模板的产物(同源兄弟 + 传递包含头的产物);互不引用的模板(如同源文件上的两种序列化)产物互相独立,不会互相带入 |
 
 **聚合器模板的上下文**:只有 `include_file_list`,条目 `include_path` = 该类别 prelude(原样)+ 全部产物,**C++ 侧已带引号**。
 

@@ -246,7 +246,7 @@ TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
   base.typeName = "Mini::Root";
   base.simpleTypeName = "Root";
   base.sourceFilePath = sourceFile;
-  base.attributes = {"Variant", "VisitEditorUi"};
+  base.attributes = {"Variant", "VisitEditorUi", "EditorUi"};
   base.derivedTypeIndex = {1u};
   ast.metaStructList.push_back(std::move(base));
 
@@ -256,6 +256,7 @@ TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
   derived.simpleTypeName = "Leaf";
   derived.sourceFilePath = sourceFile;
   derived.baseTypeName = "Mini::Root";
+  derived.attributes = {"EditorUi"};
   ast.metaStructList.push_back(std::move(derived));
 
   Aternyx::CodeGenerator generator;
@@ -271,6 +272,9 @@ TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
   const std::string visitContent =
       ReadFileContent((fs::path(output_path_) / "editor_ui" / "base_visit_ui.gen.h").string());
   EXPECT_NE(visitContent.find("#include \"../reflection/base_variant.gen.h\""), std::string::npos);
+  // The declared EditorUi dependency keeps the OnEditGui specialization of
+  // the same source visible (same directory, bare file name spelling).
+  EXPECT_NE(visitContent.find("#include \"base.gen.h\""), std::string::npos);
   EXPECT_EQ(visitContent.find("_generated/"), std::string::npos);
 
   // The variant file is generated next to it; the visit-ui file reached it
@@ -280,6 +284,38 @@ TEST_F(CodeGeneratorTest, GenIncludeListSpellsSiblingOutputs) {
   const std::string variantContent = ReadFileContent(variantFile.string());
   EXPECT_EQ(variantContent.find("_generated/"), std::string::npos);
   EXPECT_EQ(variantContent.find('\\'), std::string::npos);
+}
+
+// Template affinity: outputs of unrelated templates sharing one source file
+// must not include each other — template pairs without declared
+// genIncludeDeps (e.g. two serialization flavors on one header) stay fully
+// decoupled.
+TEST_F(CodeGeneratorTest, GenIncludeListFiltersCrossTemplateSiblings) {
+  const std::string sourceFile = (fs::path(project_root_) / "example" / "base.h").string();
+
+  Aternyx::AstTree ast;
+  Aternyx::MetaStruct item;
+  item.kind = CXCursor_StructDecl;
+  item.typeName = "Mini::Item";
+  item.simpleTypeName = "Item";
+  item.sourceFilePath = sourceFile;
+  item.attributes = {"Serialization", "EditorUi"};
+  ast.metaStructList.push_back(std::move(item));
+
+  Aternyx::CodeGenerator generator;
+  generator.Init(MakeConfig(output_path_, template_path_));
+  generator.SetAstTree(&ast);
+  generator.Run();
+
+  const std::string serContent =
+      ReadFileContent((fs::path(output_path_) / "serialization" / "base.gen.h").string());
+  EXPECT_EQ(serContent.find("../editor_ui/"), std::string::npos)
+      << "Serialization output must not include same-source EditorUi outputs";
+
+  const std::string uiContent =
+      ReadFileContent((fs::path(output_path_) / "editor_ui" / "base.gen.h").string());
+  EXPECT_EQ(uiContent.find("../serialization/"), std::string::npos)
+      << "EditorUi output must not include same-source Serialization outputs";
 }
 
 // The path style option must rename the generated sub-directories while the

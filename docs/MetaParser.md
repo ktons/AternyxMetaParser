@@ -102,14 +102,24 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 
 `-p/--project-path` 不参与 include 拼写:拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。`-p` 仅作为 `parse_headers` 模式的附加扫描根。`gen_include_list`(gen→gen 依赖)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
 
-### gen→gen 依赖(include 图,2026-08-30)
+### gen→gen 依赖(include 图,2026-09 按模板亲和过滤)
 
 生成代码引用的 `convert<T>` 等特化不在源头头文件里,而在**其依赖类型的生成物**里。因此生成器现在自动维护生成物之间的 include:
 
 - 每个源文件解析时用 `clang_getInclusions` 收集其**传递包含**的全部头文件;
-- 某生成文件的 `gen_include_list` = 同源兄弟产物 ∪ 「源文件(传递)包含的头文件中,凡有生成产物的」那些产物;排除自身,按相对本文件目录拼写(跨类别自动 `../`)。
+- 某生成文件的 `gen_include_list` = 「**本模板**的同源兄弟产物 + 本模板在源文件(传递)包含的头文件中的产物」∪「**声明依赖的模板**(`TemplateDesc::genIncludeDeps`,TOML 键 `gen_include_deps`)的上述产物」;排除自身,按相对本文件目录拼写(跨类别自动 `../`)。
 
 效果:源文件 include 了带注解的头(直接或经由公共头),其生成物自动 include 对应生成物——`AssetMetaInfo.gen.h` 自动带上 `Guid.gen.h`,不再要求手工 include `all_include.gen.h` 来满足特化链可见性。实现注意:`clang_getInclusions` 必须在 `CXTranslationUnit_DetailedPreprocessingRecord` 下才有数据(见 `Parser.cpp`)。
+
+**模板亲和(2026-09)**:gen→gen 依赖按模板过滤,而非旧版的"同源兄弟产物全量带入"。同一源文件上的互不引用模板(如 `Serialization` 与自定义的 `SerializationBinary` 两种序列化)产物完全独立,不会互相拖入依赖;内建模板中仅 `VisitEditorUi` 声明依赖 `{"EditorUi", "Variant"}`(OnEditGui 特化链 + 同源 variant 工厂),行为与旧版一致。给模板声明依赖用 TOML:
+
+```toml
+[[codegen_template]]
+name = "VisitEditorUi"
+category = "editor_ui"
+output = "_visit_ui.gen.h"
+gen_include_deps = ["EditorUi", "Variant"]
+```
 
 **序列化生成示例**(`example/user_struct.h` → `serialization/user_struct.gen.h`):
 

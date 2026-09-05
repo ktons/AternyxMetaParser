@@ -220,7 +220,7 @@ TEST_F(TargetCodegenTest, GeneratedOutputIncludesOutputsOfIncludedHeaders) {
             "#pragma once\n"
             "#include \"meta/meta_attributes.h\"\n"
             "namespace Zone {\n"
-            "STRUCT(Item, Serialization) {\n"
+            "STRUCT(Item, Serialization, EditorUi) {\n"
             "  META() int count;\n"
             "};\n"
             "}  // namespace Zone\n");
@@ -229,7 +229,7 @@ TEST_F(TargetCodegenTest, GeneratedOutputIncludesOutputsOfIncludedHeaders) {
             "#include \"item.h\"\n"
             "#include <vector>\n"
             "namespace Zone {\n"
-            "STRUCT(Box, Serialization) {\n"
+            "STRUCT(Box, Serialization, EditorUi) {\n"
             "  META() Item item;\n"
             "  std::vector<Item> items;\n"
             "};\n"
@@ -257,6 +257,16 @@ TEST_F(TargetCodegenTest, GeneratedOutputIncludesOutputsOfIncludedHeaders) {
 
   const std::string item = ReadFile(output_dir_ / "serialization" / "item.gen.h");
   EXPECT_EQ(item.find("item.gen.h"), std::string::npos) << "a generated file must not include itself";
+
+  // Template affinity holds across source files too: the Serialization
+  // output must not pick up the EditorUi outputs of the same (transitively
+  // included) headers, while the EditorUi output of box.h keeps the EditorUi
+  // output of item.h visible for its OnEditGui chain.
+  EXPECT_EQ(box.find("../editor_ui/"), std::string::npos)
+      << "Serialization output must not include same-header EditorUi outputs";
+  const std::string editorUiBox = ReadFile(output_dir_ / "editor_ui" / "box.gen.h");
+  EXPECT_NE(editorUiBox.find("#include \"item.gen.h\""), std::string::npos)
+      << "EditorUi output must keep the EditorUi output of the included item.h visible";
 }
 
 // AstTree::MergeFrom: deduplication and derivedTypeIndex remapping.

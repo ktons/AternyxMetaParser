@@ -241,6 +241,20 @@ bool ArgConfig::ParseTomlConfig(const char* tomlConfigPath) {
             }
             desc.order = static_cast<int>(*order);
           }
+          // Other templates whose outputs this template's gen_include_list
+          // may reference (see TemplateDesc::genIncludeDeps).
+          if (const toml::node* depsNode = entry->get("gen_include_deps")) {
+            const toml::array* depsArr = depsNode->as_array();
+            if (depsArr == nullptr) {
+              std::cerr << "TOML: " << context << " key 'gen_include_deps' must be an array of template names"
+                        << std::endl;
+              return false;
+            }
+            for (auto& elem : *depsArr) {
+              if (auto s = elem.value<std::string>())
+                desc.genIncludeDeps.push_back(*s);
+            }
+          }
           codegenTemplates_.push_back(std::move(desc));
         }
       }

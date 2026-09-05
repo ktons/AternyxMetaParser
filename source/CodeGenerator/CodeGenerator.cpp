@@ -34,7 +34,8 @@ std::vector<TemplateDesc> DefaultTemplates() {
       {"ObjectHandleSerialization", std::string(kCategorySerialization), OutputKind::PerSourceFile, 100,
        "_object_handle.gen.h"},
       {"EditorUi", std::string(kCategoryEditorUi), OutputKind::PerSourceFile, 100, ".gen.h"},
-      {"VisitEditorUi", std::string(kCategoryEditorUi), OutputKind::PerSourceFile, 200, "_visit_ui.gen.h"},
+      {"VisitEditorUi", std::string(kCategoryEditorUi), OutputKind::PerSourceFile, 200, "_visit_ui.gen.h", "",
+       {"EditorUi", "Variant"}},
       {"Variant", std::string(kCategoryReflection), OutputKind::PerSourceFile, 100, "_variant.gen.h"},
   };
 }
@@ -284,7 +285,7 @@ void CodeGenerator::RegisterOutputs() {
     impl_->outputsByCategory[job.category].push_back({desc.order, job.outputName});
     if (job.outputKind == OutputKind::PerSourceFile && !job.sourceFile.empty())
       genFilesBySource_[StringLib::NormalizePath(job.sourceFile)].push_back(
-          {job.outputName, ResolveOutputDir(job.category).generic_string()});
+          {job.outputName, ResolveOutputDir(job.category).generic_string(), job.templateName});
   }
 
   // Deterministic include lists inside the aggregators.
@@ -348,21 +349,34 @@ void CodeGenerator::RenderJob(const GenJob& job) {
       includeFileList.push_back({"include_path", filePath});
     data.set("include_file_list", includeFileList);
 
-    // Generated outputs that must be visible when compiling this output:
-    //   - sibling outputs derived from the same source file (e.g. the variant
+    // Generated outputs that must be visible when compiling this output,
+    // filtered by template affinity (TemplateDesc::genIncludeDeps — a
+    // template only sees its own outputs plus those of templates it
+    // declares, e.g. visit-ui over variant):
+    //   - same-source outputs of the visible templates (e.g. the variant
     //     file a visit-ui file operates on),
-    //   - outputs of annotated headers the source file (transitively) includes,
-    //     because generated code references their specializations — the
-    //     `convert<Guid>` used by an emitted `as<Guid>()` lives in the Guid
-    //     output, not in the (already included) Guid source header.
+    //   - outputs of the visible templates for annotated headers the source
+    //     file (transitively) includes, because generated code references
+    //     their specializations — the `convert<Guid>` used by an emitted
+    //     `as<Guid>()` lives in the Guid output of the same template, not in
+    //     the (already included) Guid source header. Outputs of unrelated
+    //     templates on the same headers are not referenced by this output's
+    //     template and are left out to keep template families decoupled.
     MustacheData genIncludeList = MustacheData::type::list;
     if (!job.sourceFile.empty()) {
+      std::unordered_set<std::string> visibleTemplates{job.templateName};
+      if (auto descIt = templateIndex_.find(job.templateName); descIt != templateIndex_.end()) {
+        for (const std::string& dep : templates_.at(descIt->second).genIncludeDeps)
+          visibleTemplates.insert(StringLib::ToLower(dep));
+      }
       const std::string normalizedSource = StringLib::NormalizePath(job.sourceFile);
       const std::string& self = job.outputName;
       std::set<std::string> genIncludes;
       auto collect = [&](const std::string& sourceKey) {
         if (auto it = genFilesBySource_.find(sourceKey); it != genFilesBySource_.end()) {
           for (const auto& ref : it->second) {
+            if (!visibleTemplates.contains(ref.templateName))
+              continue;
             // Skip this output itself (same name and same output directory —
             // equal names can occur across category sub-directories).
             if (ref.fileName == self && ref.dir == outDirString)
