@@ -1,6 +1,7 @@
-# AternyxMetaParser 功能说明
+# AternyxMetaParser 设计与实现
 
-> 本文档描述项目**当前实际具备**的能力(2026-08 验证),与 README 的快速上手互补。
+> 本文档描述项目的**设计理念与具体实现**(2026-09 验证),与 README 的快速上手互补。
+> 想定制/扩展 codegen(模板层 + C++ 层)请看 `CodegenExtension.md`。
 
 ## 1. 项目定位
 
@@ -19,6 +20,16 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 - 序列化目标格式:yaml-cpp(生成 `YAML::convert<T>` 特化,提供 `encode`/`decode`)。
 - 参考实现:[AustinBrunkhorst/CPP-Reflection](https://github.com/AustinBrunkhorst/CPP-Reflection)。
 
+### 设计理念
+
+实现中反复出现的几条不变量,读代码和改代码前先记住它们:
+
+- **fail-fast**:解析诊断 Error 即抛异常、模板语法错误即抛异常、注册表校验失败即抛异常——绝不静默产出"形似神非"的生成代码(见 §5 诊断行为)。
+- **可编程驱动**:`CodeGenerator`/`RunTargetCodegen` 均无全局单例依赖,一切输入走显式配置结构(`CodegenConfig`/`TargetCodegenOptions`),库可以被上层程序直接驱动(测试即是范例)。
+- **依赖方向**:引擎知识(yaml-cpp/imgui 头、allinclude prelude)不进通用库——库默认 preludes 为空,由 CLI 层(`Main.cpp`)注入(见 §4、`CodegenExtension.md` §2.5)。
+- **单一事实来源**:生成输出目录同时是该 target 的 include 目录,生成文件的 `#include` 拼写按构造可解析(见 §4"include 拼写策略")。
+- **扩展 = 数据 + 行为分离**:数据型定制(注册表)可配置,行为型定制(钩子)走 C++,配置文件永远不携带代码(见 `CodegenExtension.md`)。
+
 ## 2. 标注语法(meta/meta_attributes.h)
 
 仅在解析模式(`__REFLECTION_PARSER__`,由解析器自动注入)下展开为 `__attribute__((annotate(...)))`,对编译器无副作用:
@@ -34,6 +45,7 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 
 - 类型级:`Serialization`、`EnumCast`、`EditorUi`/`EditorUI`、`ObjectHandleSerialization`、`Variant`、`VisitEditorUi`、`CustomUi`
 - 字段级:`Runtime`(该字段不参与生成)、`Serializable`(成员方法参与 function_list,见 §6 限制)
+- 注解集合是开放的:匹配不到任何注册模板的注解被忽略,上层可注册自定义模板引入新注解(见 `CodegenExtension.md` §2)
 
 ## 3. 解析能力(Parser)
 
@@ -59,19 +71,26 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 
 ## 4. 代码生成(CodeGenerator)
 
-模板注册表(`source/CodeGenerator/CodeGenerator.cpp` 的 `kTempConfigList`):
+模板注册表已开放为 `CodegenConfig` 数据(内置默认见 `source/CodeGenerator/CodeGenerator.cpp` 的 `DefaultTemplates()`/`DefaultAggregators()`/`DefaultCodegenCategories()`,即原 `kTempConfigList`):
 
-| 模板 | 优先级 | 输出 | 触发方式 |
-|---|---|---|---|
-| `EnumCast.mustache` | TYPE_A | `enum_cast.gen.h`(全局一份) | 聚合所有标 `EnumCast` 的枚举 |
-| `Serialization.mustache` | TYPE_B | `<源文件名>.gen.h` | 按源文件分组,聚合该文件中标 `Serialization` 的类型 |
-| `ObjectHandleSerialization.mustache` | TYPE_B | `<源文件名>_object_handle.gen.h` | 同上 |
-| `EditorUi.mustache` | TYPE_B | `<源文件名>.gen.h`(editor_ui/) | 标 `EditorUi` 的类型 |
-| `VisitEditorUi.mustache` | TYPE_C | `<源文件名>_visit_ui.gen.h` | 派生类型遍历 |
-| `Variant.mustache` | TYPE_B | `<源文件名>_variant.gen.h`(reflection/) | 标 `Variant` 的类型 |
-| `_AllInclude.mustache` | TYPE_E | `all_include.gen.h` | 自动聚合已生成文件 |
+| 模板 | 类别 | 输出方式 | 输出 | 触发方式 |
+|---|---|---|---|---|
+| `EnumCast.mustache` | serialization | 全局一份(order 0) | `enum_cast.gen.h` | 聚合所有标 `EnumCast` 的枚举 |
+| `Serialization.mustache` | serialization | 按源文件 | `<源文件名>.gen.h` | 按源文件分组,聚合该文件中标 `Serialization` 的类型 |
+| `ObjectHandleSerialization.mustache` | serialization | 按源文件 | `<源文件名>_object_handle.gen.h` | 同上 |
+| `EditorUi.mustache` | editor_ui | 按源文件 | `<源文件名>.gen.h`(editor_ui/) | 标 `EditorUi` 的类型 |
+| `VisitEditorUi.mustache` | editor_ui | 按源文件(order 200) | `<源文件名>_visit_ui.gen.h` | 派生类型遍历 |
+| `Variant.mustache` | reflection | 按源文件 | `<源文件名>_variant.gen.h`(reflection/) | 标 `Variant` 的类型 |
+| `_AllInclude.mustache` | 每类别一个聚合器 | 聚合器 | `all_include.gen.h` | 自动聚合已生成文件 |
 
-输出目录:`<output>/<serialization|editor_ui|reflection>/`。每类目录下的 `all_include.gen.h` 头部注入该类别的 prelude include(见下文"include 拼写策略"与 prelude 配置);单文件生成头不注入 prelude,约定先 include `all_include.gen.h` 再使用。
+要点:
+
+- **注解名即模板名**:类型注解(大小写不敏感)匹配注册表里的模板名,匹配不到的注解被忽略——所以自定义模板不需要改解析端(怎么加见 `CodegenExtension.md` §2)。
+- **类别是开放字符串**:内置 serialization/editor_ui/reflection 三类决定生成子目录(`kSubDirNames` 的 snake/Camel 两套拼写现在是 `CodegenCategory` 数据);自定义类别随意注册。
+- **allinclude 是普通注册项**(`CodegenAggregator`,每类别一条):从注册表移除即禁用某类别的 allinclude;自定义类别可以注册自己的聚合器。聚合器头部注入该类别的 **prelude**(prelude 已从库中移出,是 `CodegenConfig::preludes` 配置数据,库默认为空——见 `CodegenExtension.md` §2.5)。
+- 模板文件缺失只警告并跳过该条目(可当禁用开关);模板语法错误或注册表校验失败(未知类别、重名)直接抛异常。
+
+输出目录:`<output>/<serialization|editor_ui|reflection|...>/`。每类目录下的 `all_include.gen.h` 头部注入该类别的 prelude include(见下文"include 拼写策略"与 `CodegenExtension.md` §2);单文件生成头不注入 prelude,约定先 include `all_include.gen.h` 再使用。
 
 ### include 拼写策略(2026-08 重构)
 
@@ -138,10 +157,10 @@ struct convert<UserStruct::ClassA> {
 - **Warning** → 打印到 stderr,不中断。
 - 这保证"include 解析失败 / 字段类型被错误恢复降级"这类问题**第一时间暴露**,不会静默产出形似神非的生成代码。
 
-## 6. 测试(test/,GTest,经 ctest 注册共 66 个用例)
+## 6. 测试(test/,GTest,经 ctest 注册共 86 个用例)
 
 - 由 `gtest_discover_tests` 注册到 ctest,`WORKING_DIRECTORY` 为仓库根(测试通过 `fs::current_path()` 定位 `example/`、`Template/`)。
-- 覆盖:Cursor 封装、ArgConfig(编译数据库参数 + TOML 三键)、libclang 冒烟、Parser 字段解析(`VerifyClassAFields`、`VerifyDataBlockFields`、字段类型全限定 `QualifiesFieldTypeNames`)、CodeGenerator 端到端、include 拼写策略(`UtilsTest`、`IncludeSpelling*`、`GenIncludeList*`)、target 级生成(`TargetCodegenTest`,含 `parse_headers`、gen→gen 依赖 `GeneratedOutputIncludesOutputsOfIncludedHeaders`)。
+- 覆盖:Cursor 封装、ArgConfig(编译数据库参数 + TOML 键含 codegen 注册键)、libclang 冒烟、Parser 字段解析(`VerifyClassAFields`、`VerifyDataBlockFields`、字段类型全限定 `QualifiesFieldTypeNames`)、CodeGenerator 端到端、include 拼写策略(`UtilsTest`、`IncludeSpelling*`、`GenIncludeList*`)、target 级生成(`TargetCodegenTest`,含 `parse_headers`、gen→gen 依赖 `GeneratedOutputIncludesOutputsOfIncludedHeaders`)、扩展面(`CodegenExtensionTest`:注册表定制、prelude、四个钩子;`TargetCodegenTest` 的 `ParseTargetAst*`/`RunTargetCodegenAppliesHooks`/post_process)。
 - **golden 内容测试 `CodeGeneratorTest.VerifySerializationContent`**:解析 example → 生成 → 对 `_generated_test/serialization/user_struct.gen.h` 做子串断言(字段名、`as<类型>()`、`convert<全限定名>`、Runtime 字段被排除),并校验 editor_ui 输出。这是唯一守住"字段准确"的防线。
 - 注意:测试只断言生成文本,不编译生成代码。
 
@@ -160,7 +179,7 @@ AternyxParser.exe <compile_commands.json|目录> [--target <名>] [选项]
 - `-p` `parse_headers` 模式的附加头文件扫描根(**不参与 include 拼写**;拼写根自动取自 target 的 `-I`)。
 - `-i` include 路径,可一次传多个(`-i path1 path2`);追加到 target 自身路径之后。**`-i` 同时是生成文件 `#include` 拼写的候选根**(见上文"include 拼写策略"),把哪些根传进来,生成文件的 include 就以哪个为根。
 - `--target <名>` 对该 target 生成;缺省只输出分析报告。
-- `--toml` 配置文件:工程无关设置,**只读根级键**——`gen_path_style`(生成子目录命名风格,`snake_case` 默认/`CamelCase`)、`parse_headers`(解析注解头而非 .cpp)、`header_markers`(注解头文本预筛标记);见 `example/params.toml`。TOML 值覆盖内置默认,命令行选项始终优先。
+- `--toml` 配置文件:工程无关设置,**只读根级键**——`gen_path_style`(生成子目录命名风格,`snake_case` 默认/`CamelCase`)、`parse_headers`(解析注解头而非 .cpp)、`header_markers`(注解头文本预筛标记),以及 codegen 注册键(`[[codegen_category]]`/`[[codegen_template]]`/`[[codegen_aggregator]]`/`[codegen_prelude.<类别>]`,见 `CodegenExtension.md` §2);见 `example/params.toml` 与 `example/custom_templates/`。TOML 值覆盖内置默认,命令行选项始终优先。
 - 任何解析错误(含配置文件错误)都会以异常终结并以非 0 退出码结束(见 §5 诊断行为)。
 
 ### 运行模式
@@ -204,11 +223,11 @@ AternyxParser.exe build\compile_commands.json --target NyxCoreUtils -o Source\_G
 ```cmake
 include(<AternyxMetaParser仓库>/cmake/AternyxMetaParser.cmake)
 aternyx_target_codegen(my_target
-  PARSER <AternyxParser可执行文件>
+  PARSER <AternyxParser可执行文件>          # 也可以是 aternyx_add_parser_tool 构建的自定义解析工具
   TEMPLATE_DIR <模板目录>
   OUTPUT_DIR ${CMAKE_BINARY_DIR}/generated   # 可选,默认 <build>/generated
   PROJECT_ROOT <目录>                        # 可选,parse_headers 附加扫描根
-  CONFIG <工程无关配置.toml>                  # 可选,gen_path_style/parse_headers/header_markers
+  CONFIG <工程无关配置.toml>                  # 可选,gen_path_style/parse_headers/header_markers + CodegenExtension.md §2 的 codegen 注册键
   EXTRA_INCLUDE_PATHS <目录>...)              # 可选,追加 include 路径
 ```
 
@@ -229,10 +248,11 @@ aternyx_target_codegen(my_target
 
 ```
 meta/                    标注宏定义
-example/                 解析示例(测试输入);cmake_integration/ 为 CMake 集成示例
+example/                 解析示例(测试输入);cmake_integration/ 为 CMake 集成示例;
+                         custom_templates/ 为免编译自定义模板示例(CodegenExtension.md §2.6)
 Template/                mustache 模板
 source/                  Parser(libclang 封装+收集)、CodeGenerator、Config、Utils、CMakeAnalyzer(编译数据库分析+头文件扫描+target 级生成)
-cmake/                   AternyxMetaParser.cmake(aternyx_target_codegen 集成函数)
+cmake/                   AternyxMetaParser.cmake(aternyx_target_codegen 集成函数 + aternyx_add_parser_tool 自定义工具构建)
 test/                    GTest(与 source/ 结构镜像)
-docs/                    本文档
+docs/                    本文档(设计与实现) + CodegenExtension.md(自定义 Codegen 指南)
 ```

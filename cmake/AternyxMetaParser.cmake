@@ -36,7 +36,6 @@
 function(aternyx_target_codegen TARGET_NAME)
   cmake_parse_arguments(ATC "" "PARSER;OUTPUT_DIR;TEMPLATE_DIR;PROJECT_ROOT;CONFIG"
                         "EXTRA_INCLUDE_PATHS" ${ARGN})
-
   if(NOT TARGET ${TARGET_NAME})
     message(FATAL_ERROR "aternyx_target_codegen: '${TARGET_NAME}' is not a target")
   endif()
@@ -124,4 +123,35 @@ function(aternyx_target_codegen TARGET_NAME)
   # Single point of truth: the directory we generate into is also the
   # directory the target resolves generated includes from.
   target_include_directories(${TARGET_NAME} PRIVATE "${ATC_OUTPUT_DIR}")
+endfunction()
+
+# aternyx_add_parser_tool(<name> SRCS <src>... [OUTPUT_NAME <file>])
+#
+# Builds a custom parser tool on top of AternyxParserLib — the C++ half of
+# the extension model. The tool's sources construct Aternyx::CodegenHooks
+# (and/or a custom registry in TargetCodegenOptions) and call
+# Aternyx::CMake::RunTargetCodegen; the resulting executable can replace
+# PARSER in aternyx_target_codegen. See docs/MetaParser.md, "自定义 Codegen".
+#
+# Requires this repository to be part of the consuming build
+# (add_subdirectory / FetchContent), because the AternyxParserLib target is
+# linked into the tool.
+function(aternyx_add_parser_tool TOOL_NAME)
+  cmake_parse_arguments(APT "" "OUTPUT_NAME" "SRCS" ${ARGN})
+
+  if(NOT APT_SRCS)
+    message(FATAL_ERROR "aternyx_add_parser_tool: SRCS is required (at least one source file with a main())")
+  endif()
+  if(NOT TARGET AternyxParserLib)
+    message(FATAL_ERROR
+            "aternyx_add_parser_tool: target AternyxParserLib not found; add the AternyxMetaParser repository "
+            "to your build first (add_subdirectory or FetchContent_MakeAvailable)")
+  endif()
+
+  add_executable(${TOOL_NAME} ${APT_SRCS})
+  EnableUtf8(${TOOL_NAME})
+  target_link_libraries(${TOOL_NAME} PRIVATE AternyxParserLib)
+  if(APT_OUTPUT_NAME)
+    set_target_properties(${TOOL_NAME} PROPERTIES OUTPUT_NAME "${APT_OUTPUT_NAME}")
+  endif()
 endfunction()

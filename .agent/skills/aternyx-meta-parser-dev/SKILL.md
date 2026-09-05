@@ -56,9 +56,9 @@ build/bin/AternyxParser.exe <项目>/build/compile_commands.json --target <目�
 
 ## 速查
 
-- 功能全景、模板清单、已知限制:**`docs/MetaParser.md`**(读它,别重新考古)。
+- 功能全景、设计理念与实现、已知限制:**`docs/MetaParser.md`**(读它,别重新考古);定制/扩展 codegen(模板层 TOML + C++ 钩子):**`docs/CodegenExtension.md`**。
 - 标注宏:`meta/meta_attributes.h`(`CLASS/STRUCT/ENUM_CLASS/META`,展开为 annotate attribute)。
-- 解析核心:`source/Parser/Parser.cpp`(作用域感知递归收集;含 TU 包含文件收集 `CollectInclusions`);生成核心:`source/CodeGenerator/CodeGenerator.cpp`(模板注册表 `kTempConfigList`,属性匹配大小写不敏感)。
+- 解析核心:`source/Parser/Parser.cpp`(作用域感知递归收集;含 TU 包含文件收集 `CollectInclusions`);生成核心:`source/CodeGenerator/CodeGenerator.cpp`(开放模板注册表 `DefaultTemplates()/DefaultAggregators()/DefaultCodegenCategories()`,行为注入 `CodegenHooks`,属性匹配大小写不敏感;扩展模型见 `docs/CodegenExtension.md`)。
 - 模板:`Template/*.mustache`;示例输入:`example/user_struct.h`。
 
 ## 生成行为要点(2026-08-30)
