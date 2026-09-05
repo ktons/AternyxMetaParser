@@ -12,7 +12,7 @@ CLASS(ClassA, Serialization) {
   META(Runtime) int scratch;
 };
 
-STRUCT(DataBlock, Serialization, EditorUI) {
+STRUCT(DataBlock, Serialization, EditorUI, Summary) {
   int a;
   int b;
   std::string name;

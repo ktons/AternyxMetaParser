@@ -1,0 +1,67 @@
+# 自定义 codegen 注册示例（--toml 传入，与 example/params.toml 同一机制）。
+#
+# 数据层扩展：不改任何 C++，通过配置注册自定义模板/类别/聚合器、禁用内置
+# 模板、覆盖 allinclude 的 prelude。需要“行为”级定制（类型过滤、给模板上
+# 下文加计算字段、任务增删改）时才需要 C++（见 docs/CodegenExtension.md
+# 第 3 节）。
+#
+# 注册语义：TOML 条目在内置默认之上合并——同名覆盖内置，新名追加；
+# `remove = true` 删除内置项。prelude 按类别整体覆盖（显式空数组 = 清空）。
+
+gen_path_style = "snake_case"
+parse_headers = true
+header_markers = ["CLASS(", "STRUCT(", "ENUM_CLASS("]
+
+# --- 本示例的模板目录只放自定义模板，内置模板逐一禁用 -----------------
+# （想在内置之上追加自定义模板：把内置 .mustache 一起放进模板目录，
+#   并删掉下面这些 remove 条目即可。）
+
+[[codegen_template]]
+name = "EnumCast"
+remove = true
+
+[[codegen_template]]
+name = "Serialization"
+remove = true
+
+[[codegen_template]]
+name = "ObjectHandleSerialization"
+remove = true
+
+[[codegen_template]]
+name = "EditorUi"
+remove = true
+
+[[codegen_template]]
+name = "VisitEditorUi"
+remove = true
+
+[[codegen_template]]
+name = "Variant"
+remove = true
+
+# --- 自定义类别 + 自定义模板（注解名即模板名） ------------------------
+
+[[codegen_category]]
+name = "summary"
+
+[[codegen_template]]
+name = "Summary"
+category = "summary"
+output = "_summary.gen.h"
+
+# 自定义类别注册自己的 allinclude 聚合器（模板文件在模板目录中）
+[[codegen_aggregator]]
+category = "summary"
+template = "_AllInclude"
+output = "all_include.gen.h"
+
+# --- 可选：产物后处理（配置侧的 transformOutput） ---------------------
+# 在任一 [[codegen_template]] 条目上加一行即可，产物经命令 stdin 进
+# stdout 出，%F 展开为输出文件名，命令失败则生成失败：
+#
+# post_process = "clang-format --style=file"
+#
+# --- 可选：覆盖某类别 allinclude 的 prelude ---------------------------
+# [codegen_prelude.summary]
+# includes = ["<summary/kit.h>"]
