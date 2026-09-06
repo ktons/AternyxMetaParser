@@ -13,10 +13,10 @@
 #
 # The generated headers are compiled by <target> itself: this function runs
 # the parser as part of the build (stamp based, re-runs when the target's
-# sources or the compile database change) and adds OUTPUT_DIR to the target's
-# include directories. The output path and the include path are therefore one
-# decision, made in one place — this is what makes the `#include` lines
-# inside generated files resolve by construction.
+# sources, the template files, the CONFIG toml or the compile database change)
+# and adds OUTPUT_DIR to the target's include directories. The output path and
+# the include path are therefore one decision, made in one place — this is what
+# makes the `#include` lines inside generated files resolve by construction.
 #
 # Whether the parser consumes the target's .cpp files or its annotated
 # headers (parse_headers mode) is a project-wide setting: set
@@ -68,6 +68,11 @@ function(aternyx_target_codegen TARGET_NAME)
 
   set(ATC_STAMP "${ATC_OUTPUT_DIR}/.aternyx_codegen_${TARGET_NAME}.stamp")
 
+  # 模板与样式配置是每次生成的输入: 必须显式列为依赖, 否则只改模板/toml 时
+  # ninja 不会重跑解析器, 生成产物将停留在旧模板的结果 (CONFIGURE_DEPENDS
+  # 保证新增/删除模板文件时触发重新 configure)
+  file(GLOB ATC_TEMPLATE_FILES CONFIGURE_DEPENDS "${ATC_TEMPLATE_DIR}/*")
+
   # macOS: libclang 的驱动在进程内不会执行 xcrun 的 SDK 探测（/usr/bin/clang 能找到
   # SDK 是因为 xcrun 垫片设置了 SDKROOT），解析标准库头前需显式提供 SDK 路径
   set(_codegen_sdkroot_env "")
@@ -113,7 +118,8 @@ function(aternyx_target_codegen TARGET_NAME)
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ATC_OUTPUT_DIR}"
     COMMAND ${_codegen_command}
     COMMAND ${CMAKE_COMMAND} -E touch "${ATC_STAMP}"
-    DEPENDS "${ATC_PARSER}" "${CMAKE_BINARY_DIR}/compile_commands.json" ${_codegen_sources}
+    DEPENDS "${ATC_PARSER}" "${CMAKE_BINARY_DIR}/compile_commands.json"
+            ${ATC_TEMPLATE_FILES} ${ATC_CONFIG} ${_codegen_sources}
     COMMENT "AternyxMetaParser: generating reflection code for target '${TARGET_NAME}'"
     VERBATIM)
 
