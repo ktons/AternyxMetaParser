@@ -4,7 +4,6 @@
 #     PARSER <AternyxParser executable>
 #     TEMPLATE_DIR <dir>
 #     [OUTPUT_DIR <dir>]        # default: ${CMAKE_BINARY_DIR}/generated
-#     [PROJECT_ROOT <dir>]      # extra header scan root for parse_headers mode
 #     [CONFIG <toml>]           # TOML with project-independent settings:
 #                               #   gen_path_style = "snake_case"|"CamelCase"
 #                               #   parse_headers = true|false
@@ -20,10 +19,12 @@
 #
 # Whether the parser consumes the target's .cpp files or its annotated
 # headers (parse_headers mode) is a project-wide setting: set
-# `parse_headers = true` in the TOML passed via CONFIG. Headers must be
-# self-contained and must not include generated files. Annotated headers
-# outside the target's source directories are found when PROJECT_ROOT (or a
-# directory reachable from it) contains them.
+# `parse_headers = true` in the TOML passed via CONFIG. In that mode this
+# function hands the target's own header sources to the parser (--headers-file
+# list, one absolute path per line), so annotated headers are discovered
+# wherever they live in the target's source tree; the parser falls back to
+# scanning the .cpp directories only when the target lists no headers.
+# Headers must be self-contained and must not include generated files.
 #
 # Notes:
 #  - Requires a generator that exports compile_commands.json (Ninja; the
@@ -34,7 +35,7 @@
 #    cannot be processed.
 
 function(aternyx_target_codegen TARGET_NAME)
-  cmake_parse_arguments(ATC "" "PARSER;OUTPUT_DIR;TEMPLATE_DIR;PROJECT_ROOT;CONFIG"
+  cmake_parse_arguments(ATC "" "PARSER;OUTPUT_DIR;TEMPLATE_DIR;CONFIG"
                         "EXTRA_INCLUDE_PATHS" ${ARGN})
   if(NOT TARGET ${TARGET_NAME})
     message(FATAL_ERROR "aternyx_target_codegen: '${TARGET_NAME}' is not a target")
@@ -65,6 +66,30 @@ function(aternyx_target_codegen TARGET_NAME)
             "aternyx_target_codegen: target '${TARGET_NAME}' has no sources; it will produce no "
             "compile_commands.json entries, so generation cannot find it (INTERFACE targets are not supported)")
   endif()
+
+  # file(GLOB) 的相对模式会把相对 target 定义目录的路径写进 SOURCES: 统一还原
+  # 为绝对路径, 供依赖列表与头文件清单使用
+  get_target_property(_codegen_target_source_dir ${TARGET_NAME} SOURCE_DIR)
+  set(_codegen_abs_sources "")
+  foreach(_src IN LISTS _codegen_sources)
+    if(IS_ABSOLUTE "${_src}")
+      list(APPEND _codegen_abs_sources "${_src}")
+    else()
+      list(APPEND _codegen_abs_sources "${_codegen_target_source_dir}/${_src}")
+    endif()
+  endforeach()
+
+  # parse_headers 模式下把 target 自己的头文件清单显式交给解析器: 注解头位于
+  # 源码树任何层级都能被发现, 不再依赖 ".cpp 所在目录" 的扫描启发式。
+  # 清单为空则不传, 解析器回落到目录扫描。
+  set(_codegen_headers "")
+  foreach(_src IN LISTS _codegen_abs_sources)
+    get_filename_component(_ext "${_src}" EXT)
+    string(TOLOWER "${_ext}" _ext)
+    if(_ext MATCHES "^(\\.h|\\.hpp|\\.hxx|\\.hh)$")
+      list(APPEND _codegen_headers "${_src}")
+    endif()
+  endforeach()
 
   set(ATC_STAMP "${ATC_OUTPUT_DIR}/.aternyx_codegen_${TARGET_NAME}.stamp")
 
@@ -107,19 +132,34 @@ function(aternyx_target_codegen TARGET_NAME)
     list(APPEND _codegen_args -i "${_dir}")
   endforeach()
 
+  set(_codegen_headers_file "")
+  if(_codegen_headers)
+    set(_codegen_headers_file "${CMAKE_CURRENT_BINARY_DIR}/aternyx_codegen_${TARGET_NAME}.headers.txt")
+    file(WRITE "${_codegen_headers_file}" "")
+    foreach(_src IN LISTS _codegen_headers)
+      file(APPEND "${_codegen_headers_file}" "${_src}\n")
+    endforeach()
+    list(APPEND _codegen_args --headers-file "${_codegen_headers_file}")
+  endif()
+
   set(_codegen_command)
   if(_codegen_sdkroot_env)
     list(APPEND _codegen_command ${_codegen_sdkroot_env})
   endif()
   list(APPEND _codegen_command "${ATC_PARSER}" ${_codegen_args})
 
+  set(_codegen_deps "${ATC_PARSER}" "${CMAKE_BINARY_DIR}/compile_commands.json"
+          ${ATC_TEMPLATE_FILES} ${ATC_CONFIG} ${_codegen_abs_sources})
+  if(_codegen_headers_file)
+    list(APPEND _codegen_deps "${_codegen_headers_file}")
+  endif()
+
   add_custom_command(
     OUTPUT "${ATC_STAMP}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ATC_OUTPUT_DIR}"
     COMMAND ${_codegen_command}
     COMMAND ${CMAKE_COMMAND} -E touch "${ATC_STAMP}"
-    DEPENDS "${ATC_PARSER}" "${CMAKE_BINARY_DIR}/compile_commands.json"
-            ${ATC_TEMPLATE_FILES} ${ATC_CONFIG} ${_codegen_sources}
+    DEPENDS ${_codegen_deps}
     COMMENT "AternyxMetaParser: generating reflection code for target '${TARGET_NAME}'"
     VERBATIM)
 

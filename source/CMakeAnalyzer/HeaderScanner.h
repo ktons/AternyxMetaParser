@@ -19,6 +19,14 @@ class HeaderScanner {
   // Unreadable files or directories are reported on stderr and skipped.
   static std::vector<std::string> Scan(const std::vector<std::string>& roots,
                                        const std::vector<std::string>& markers);
+
+  // Filters an explicit candidate list (e.g. the target's header sources the
+  // CMake wrapper passes via --headers-file) down to the headers whose text
+  // contains one of `markers`. Same purely textual filter as `Scan`; entries
+  // that are not readable header files are reported on stderr and skipped.
+  // Returns absolute normalized header paths, sorted and de-duplicated.
+  static std::vector<std::string> FilterAnnotated(const std::vector<std::string>& files,
+                                                  const std::vector<std::string>& markers);
 };
 
 }  // namespace Aternyx::CMake

@@ -1,6 +1,7 @@
 #include "Config/ArgConfig.h"
 
 #include <argparse.hpp>
+#include <filesystem>
 #include <iostream>
 #include <toml.hpp>
 
@@ -64,6 +65,10 @@ bool ArgConfig::Validate() {
     std::cerr << "No compile_commands.json path provided." << std::endl;
     return false;
   }
+  if (!headersFile_.empty() && !std::filesystem::exists(headersFile_)) {
+    std::cerr << "headers-file does not exist: " << headersFile_ << std::endl;
+    return false;
+  }
   return true;
 }
 
@@ -72,6 +77,8 @@ void ArgConfig::DebugInfo() {
   std::cout << "gen path style: " << (genPathStyle_ == Aternyx::GenPathStyle::CamelCase ? "CamelCase" : "snake_case")
             << std::endl;
   std::cout << "target: " << (target_.empty() ? "<report only>" : target_) << std::endl;
+  if (!headersFile_.empty())
+    std::cout << "headers file: " << headersFile_ << std::endl;
 }
 
 bool ArgConfig::ParseArgs(int argc, char* argv[]) {
@@ -86,8 +93,13 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
   parser.add_argument("-o", "--output-path").help("Generator output path").default_value(std::string("_generated"));
 
   parser.add_argument("-p", "--project-path")
-      .help("Extra header scan root for parse_headers mode")
+      .help("Extra header scan root for parse_headers mode (fallback when --headers-file is not given)")
       .default_value(std::string(""));
+
+  parser.add_argument("--headers-file")
+      .help("File listing candidate headers for parse_headers mode, one path per line; implies parse_headers "
+            "mode and replaces the directory scan")
+      .default_value(std::string{""});
 
   parser.add_argument("-t", "--template-path").help("Template directory path").default_value(std::string("template"));
 
@@ -121,6 +133,8 @@ bool ArgConfig::ParseArgs(int argc, char* argv[]) {
     templatePath_ = parser.get<std::string>("-t");
   if (parser.is_used("-p"))
     projectPath_ = parser.get<std::string>("-p");
+  if (parser.is_used("--headers-file"))
+    headersFile_ = parser.get<std::string>("--headers-file");
   if (parser.is_used("-i")) {
     includePaths_.clear();
     ApplyParserValue(includePaths_, parser, "-i");

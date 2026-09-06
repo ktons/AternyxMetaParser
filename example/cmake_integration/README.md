@@ -40,8 +40,9 @@ build/generated/serialization/all_include.gen.h
 
 - `parse_headers`（`aternyx_parser.toml`）：只解析注解头文件（文本预筛含
   `CLASS(`/`STRUCT(`/`ENUM_CLASS(` 的 .h），不解析 .cpp——头文件按约定不
-  include 生成物，因此首跑不会因生成物缺失而失败。注解头不在 target 源文件
-  同目录时，用 `PROJECT_ROOT` 补充扫描根。
+  include 生成物，因此首跑不会因生成物缺失而失败。target 以源文件形式列出
+  的头文件（本示例的 `src/my_types.h`）经 `--headers-file` 清单直接交给
+  解析器，注解头在源码树任何层级都会被发现。
 - 生成文件对 `my_types.h` 的 include 拼写取自 target 的 include 目录
   （compile_commands.json），在编译该目标时按构造可解析。
 - 生成的序列化代码依赖 yaml-cpp 等运行时头（内置 prelude）。本示例只演示

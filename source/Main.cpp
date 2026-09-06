@@ -98,6 +98,24 @@ std::vector<Aternyx::CodegenAggregator> MergeAggregators(const ArgConfig& args) 
   return aggregators;
 }
 
+// Reads a --headers-file list: one header path per line; blank lines and
+// surrounding whitespace are ignored. Paths are expected absolute (the CMake
+// wrapper writes the target's header sources); anything else resolves
+// against the current directory.
+std::vector<std::string> ReadHeaderListFile(const std::string& path) {
+  std::ifstream ifs(path, std::ios::binary);
+  if (!ifs)
+    throw std::runtime_error("cannot open headers file: " + path);
+  std::vector<std::string> headers;
+  std::string line;
+  while (std::getline(ifs, line)) {
+    line = Aternyx::StringLib::Trim(line);
+    if (!line.empty())
+      headers.push_back(line);
+  }
+  return headers;
+}
+
 Aternyx::CMake::TargetCodegenOptions MakeTargetCodegenOptionsFromArgs() {
   const ArgConfig& args = ArgConfig::Instance();
   Aternyx::CMake::TargetCodegenOptions options;
@@ -107,6 +125,12 @@ Aternyx::CMake::TargetCodegenOptions MakeTargetCodegenOptionsFromArgs() {
   options.pathStyle = args.genPathStyle_;
   options.extraIncludePaths = args.includePaths_;
   options.parseHeaders = args.parseHeaders_;
+  // An explicit header list is parse_headers mode by definition: the list
+  // replaces directory discovery, so it also implies the mode switch.
+  if (!args.headersFile_.empty()) {
+    options.headerFiles = ReadHeaderListFile(args.headersFile_);
+    options.parseHeaders = true;
+  }
   options.headerMarkers = args.headerMarkers_;
   options.preludes = EnginePreludes();
   // TOML preludes replace the engine defaults per configured category (an

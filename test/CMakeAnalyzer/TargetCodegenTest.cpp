@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "CMakeAnalyzer/HeaderScanner.h"
 #include "CMakeAnalyzer/TargetCodegen.h"
 #include "Parser/Parser.h"
 
@@ -177,6 +178,60 @@ TEST_F(TargetCodegenTest, ParsesHeadersInsteadOfCppFiles) {
   EXPECT_NE(content.find("#include \"types/entity.h\""), std::string::npos);
   EXPECT_EQ(content.find('\\'), std::string::npos)
       << "backslashes must never appear in generated includes";
+}
+
+// An explicit header list replaces directory discovery: types/entity.h sits
+// outside every .cpp directory and no fallback scan root is configured, so
+// only the list can supply it — the CMake wrapper's --headers-file use case.
+TEST_F(TargetCodegenTest, ExplicitHeaderListReplacesScan) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp", "src/usage.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.projectPath.clear();
+  options.parseHeaders = true;
+  options.headerFiles = {(fixture_root_ / "types" / "entity.h").string()};
+  Aternyx::CMake::RunTargetCodegen(target, options);
+
+  EXPECT_TRUE(fs::exists(output_dir_ / "serialization" / "entity.gen.h"));
+}
+
+// A list whose entries carry no annotation marker filters down to nothing and
+// must fail loudly instead of generating from an empty set.
+TEST_F(TargetCodegenTest, ExplicitHeaderListWithoutMarkerMatchThrows) {
+  auto target = AnalyzeTarget(fixture_root_, repo_root_, {"src/entity.cpp"}, {});
+  ASSERT_EQ(target.name, "miniproj");
+
+  Aternyx::CMake::TargetCodegenOptions options = DefaultOptions();
+  options.projectPath.clear();
+  options.parseHeaders = true;
+  // A .cpp path: not a header at all, so the list filters to nothing.
+  options.headerFiles = {(fixture_root_ / "src" / "entity.cpp").string()};
+  EXPECT_THROW(Aternyx::CMake::ParseTargetAst(target, options), std::runtime_error);
+}
+
+// FilterAnnotated: the same purely textual filter as Scan, applied to an
+// explicit list — non-headers and unreadable entries are skipped, duplicates
+// collapse, and the survivor is reported by its normalized path.
+TEST(HeaderScannerFilterTest, FiltersExplicitList) {
+  fs::path dir = CreateTempDir("header_filter_");
+  WriteFile(dir / "annotated.h", "STRUCT(A, Serialization) { META() int v; };\n");
+  WriteFile(dir / "plain.h", "#pragma once\nint x;\n");
+  WriteFile(dir / "notes.txt", "STRUCT(Text, Serialization);\n");
+
+  std::vector<std::string> list = {
+      (dir / "annotated.h").string(),
+      (dir / "annotated.h").string(),  // duplicate entry
+      (dir / "plain.h").string(),
+      (dir / "notes.txt").string(),
+      (dir / "missing.h").string(),
+      "",
+  };
+
+  const std::vector<std::string> found =
+      Aternyx::CMake::HeaderScanner::FilterAnnotated(list, Aternyx::CMake::DefaultHeaderMarkers());
+  ASSERT_EQ(found.size(), 1u);
+  EXPECT_NE(found[0].find("annotated.h"), std::string::npos);
 }
 
 // A header that does not compile standalone must fail loudly in

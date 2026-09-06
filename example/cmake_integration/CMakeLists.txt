@@ -24,7 +24,10 @@ find_program(ATERNYX_PARSER_EXE
 
 include("${ATERNYX_META_PARSER_ROOT}/cmake/AternyxMetaParser.cmake")
 
-add_executable(example_app src/main.cpp)
+# List the annotated header alongside the .cpp: the codegen wrapper passes
+# the target's header sources to the parser (--headers-file), so headers are
+# found wherever they live in the target tree.
+add_executable(example_app src/main.cpp src/my_types.h)
 target_include_directories(example_app PRIVATE
   "${ATERNYX_META_PARSER_ROOT}"  # for meta/meta_attributes.h
 )

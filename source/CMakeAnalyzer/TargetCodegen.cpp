@@ -64,25 +64,34 @@ TargetParseResult ParseTargetAst(const CMakeTarget& target, const TargetCodegenO
     extraClangArgs.push_back(target.cxxStandard);
 
   // Parse inputs: the target's .cpp files, or -- in parseHeaders mode -- the
-  // annotated headers found under the source directories and the project
-  // root. Parsing headers keeps generation decoupled from the .cpp files,
-  // whose includes may reference generated outputs that do not exist yet on
-  // the first run.
+  // annotated headers. When an explicit candidate list is available (the CMake
+  // wrapper passes the target's own header sources via --headers-file), it is
+  // used directly; otherwise headers are discovered by scanning the source
+  // directories and the project root. Parsing headers keeps generation
+  // decoupled from the .cpp files, whose includes may reference generated
+  // outputs that do not exist yet on the first run.
   std::vector<std::string> sources;
   if (options.parseHeaders) {
-    std::vector<std::string> scanRoots;
-    for (const std::string& sourceFile : target.cppFiles)
-      scanRoots.push_back(fs::path{sourceFile}.parent_path().string());
-    if (!options.projectPath.empty())
-      scanRoots.push_back(options.projectPath);
     std::vector<std::string> markers = options.headerMarkers;
     if (markers.empty())
       markers = DefaultHeaderMarkers();
-    sources = HeaderScanner::Scan(scanRoots, markers);
+    std::vector<std::string> scanRoots;
+    if (!options.headerFiles.empty()) {
+      sources = HeaderScanner::FilterAnnotated(options.headerFiles, markers);
+    } else {
+      for (const std::string& sourceFile : target.cppFiles)
+        scanRoots.push_back(fs::path{sourceFile}.parent_path().string());
+      if (!options.projectPath.empty())
+        scanRoots.push_back(options.projectPath);
+      sources = HeaderScanner::Scan(scanRoots, markers);
+    }
     if (sources.empty()) {
-      throw std::runtime_error("no annotated headers found for target '" + target.name +
-                               "' (scanned " + (scanRoots.empty() ? "nowhere" : "the configured roots") +
-                               " for markers like \"CLASS(\"; check the header_markers configuration)");
+      const std::string origin = options.headerFiles.empty()
+                                     ? (scanRoots.empty() ? "scanned nowhere" : "scanned the configured roots")
+                                     : "filtered the explicit header list";
+      throw std::runtime_error("no annotated headers found for target '" + target.name + "' (" + origin +
+                               " for markers like \"CLASS(\"; check the header_markers configuration and the "
+                               "target's header sources)");
     }
   } else {
     if (target.cppFiles.empty())

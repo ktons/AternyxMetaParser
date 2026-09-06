@@ -15,20 +15,27 @@ struct TargetCodegenOptions {
   std::string outputPath;
   // Directory holding the mustache templates.
   std::string templatePath;
-  // Extra header scan root for parseHeaders mode. Deliberately NOT an
-  // include-spelling root: `#include` spellings come only from the target's
-  // own include roots, so a scan root that is too broad fails loudly instead
-  // of emitting includes the consumer cannot resolve.
+  // Fallback header scan roots for parseHeaders mode, used only when
+  // `headerFiles` is empty: the directories of the target's sources plus
+  // `projectPath`. Deliberately NOT an include-spelling root: `#include`
+  // spellings come only from the target's own include roots, so a scan root
+  // that is too broad fails loudly instead of emitting includes the consumer
+  // cannot resolve.
   std::string projectPath;
+  // Explicit candidate header list for parseHeaders mode (absolute paths,
+  // typically the target's header sources written by the CMake wrapper via
+  // --headers-file). When non-empty it REPLACES the directory scan above;
+  // entries still go through the header_markers textual filter.
+  std::vector<std::string> headerFiles;
   // Naming style of the generated sub-directories.
   GenPathStyle pathStyle{GenPathStyle::SnakeCase};
   // Additional include paths appended to the target's own ones (e.g. the
   // project root, so generated `#include "Runtime/..."` lines resolve).
   std::vector<std::string> extraIncludePaths;
   // Parse annotated headers instead of the target's .cpp files
-  // (.h-as-source). Headers are collected from the directories of the
-  // target's sources and `projectPath`; they must be self-contained and must
-  // not include generated files.
+  // (.h-as-source). Candidates come from `headerFiles` when given, otherwise
+  // from the scan roots described on `projectPath`. Parsed headers must be
+  // self-contained and must not include generated files.
   bool parseHeaders{false};
   // Text markers identifying annotated headers (e.g. "CLASS("); empty uses
   // the built-in defaults.

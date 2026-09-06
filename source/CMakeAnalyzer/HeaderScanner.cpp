@@ -67,4 +67,24 @@ std::vector<std::string> HeaderScanner::Scan(const std::vector<std::string>& roo
   return {found.begin(), found.end()};
 }
 
+std::vector<std::string> HeaderScanner::FilterAnnotated(const std::vector<std::string>& files,
+                                                        const std::vector<std::string>& markers) {
+  std::set<std::string> found;
+  for (const std::string& file : files) {
+    if (file.empty())
+      continue;
+    const fs::path path = StringLib::NormalizePath(file);
+    std::error_code ec;
+    if (!fs::is_regular_file(path, ec)) {
+      std::cerr << "[HeaderScanner] warning: header list entry is not a readable file, skipped: " << path.string()
+                << std::endl;
+      continue;
+    }
+    if (!IsHeaderFile(path) || !ContainsAnyMarker(path, markers))
+      continue;
+    found.insert(StringLib::GetUnixPath(path.lexically_normal().generic_string()));
+  }
+  return {found.begin(), found.end()};
+}
+
 }  // namespace Aternyx::CMake

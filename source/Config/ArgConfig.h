@@ -21,10 +21,16 @@ struct ArgConfig {
   // Path to the template directory used for code generation.
   std::string templatePath_;
 
-  // Extra header scan root for parse_headers mode (the CMake PROJECT_ROOT
-  // option). Optional; the target's own source directories are always
-  // scanned.
+  // Extra header scan root for parse_headers mode. Optional fallback: only
+  // used when no explicit header list (--headers-file) is given; the
+  // target's own source directories are always scanned in that case.
   std::string projectPath_;
+
+  // File listing candidate headers for parse_headers mode, one path per line
+  // (written by the CMake wrapper from the target's header sources). When
+  // set, parse_headers mode is implied and the list replaces directory
+  // scanning.
+  std::string headersFile_;
 
   std::vector<std::string> includePaths_;
 

@@ -30,7 +30,8 @@
    ```
    需要先以 Ninja + `CMAKE_EXPORT_COMPILE_COMMANDS=ON` 配置生成 compile_commands.json。
    - `--toml <配置>`:工程无关配置——`gen_path_style`(生成子目录风格,snake_case 默认/CamelCase)、`parse_headers`、`header_markers`,见 `example/params.toml`。
-   - `parse_headers`(.h-as-source):只解析注解头文件(文本预筛 `CLASS(`/`STRUCT(`/`ENUM_CLASS(`),不解析 .cpp。约定:头文件自包含、不 include 生成物——首跑永不因生成物缺失而失败。
+   - `--headers-file <文件>`:每行一个头文件路径的候选清单;给出即启用 `parse_headers` 模式并替代目录扫描(CMake 集成自动使用)。
+   - `parse_headers`(.h-as-source):只解析注解头文件(文本预筛 `CLASS(`/`STRUCT(`/`ENUM_CLASS(`),不解析 .cpp。候选头来自 `--headers-file` 清单,缺省回落为扫描 target 各 .cpp 所在目录(可加 `-p` 附加根)。约定:头文件自包含、不 include 生成物——首跑永不因生成物缺失而失败。
 
 3. **查看生成结果 Check Output**
    - 查看 `Template/` 目录，了解有哪些模板可用。

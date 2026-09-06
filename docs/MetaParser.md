@@ -100,7 +100,7 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 2. **相对兜底**:头文件不在任何根下时,拼写 = 相对生成文件自身目录(利用编译器对 `""` include 先搜包含者所在目录的规则,零配置可解析)。
 3. 全程正斜杠(修复 Windows 反斜杠进 `#include` 的转义隐患);路径根无关(如跨盘)时直接报错,绝不产出 `#include ""`。
 
-`-p/--project-path` 不参与 include 拼写:拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。`-p` 仅作为 `parse_headers` 模式的附加扫描根。`gen_include_list`(gen→gen 依赖)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
+`-p/--project-path` 不参与 include 拼写:拼写根必须来自消费编译真实存在的根,否则会产出无法解析的 include。`-p` 仅作为 `parse_headers` 模式的附加扫描根,且仅在未提供 `--headers-file` 显式清单时生效。`gen_include_list`(gen→gen 依赖)也由生成器按相对本文件目录拼写,模板中不再有硬编码生成路径。
 
 ### gen→gen 依赖(include 图,2026-09 按模板亲和过滤)
 
@@ -186,7 +186,8 @@ AternyxParser.exe <compile_commands.json|目录> [--target <名>] [选项]
 
 - `-o` 输出目录(默认 `_generated`);报告模式下报告 JSON 也写到这里。
 - `-t` 模板目录。
-- `-p` `parse_headers` 模式的附加头文件扫描根(**不参与 include 拼写**;拼写根自动取自 target 的 `-I`)。
+- `-p` `parse_headers` 模式的附加头文件扫描根(**不参与 include 拼写**;拼写根自动取自 target 的 `-I`;仅在未提供 `--headers-file` 时生效)。
+- `--headers-file <文件>` `parse_headers` 模式的候选头文件清单,每行一个路径(CMake 集成由 `aternyx_target_codegen` 从 target 的头文件源码自动写出);给出即启用 `parse_headers` 模式并**替代**目录扫描。
 - `-i` include 路径,可一次传多个(`-i path1 path2`);追加到 target 自身路径之后。**`-i` 同时是生成文件 `#include` 拼写的候选根**(见上文"include 拼写策略"),把哪些根传进来,生成文件的 include 就以哪个为根。
 - `--target <名>` 对该 target 生成;缺省只输出分析报告。
 - `--toml` 配置文件:工程无关设置,**只读根级键**——`gen_path_style`(生成子目录命名风格,`snake_case` 默认/`CamelCase`)、`parse_headers`(解析注解头而非 .cpp)、`header_markers`(注解头文本预筛标记),以及 codegen 注册键(`[[codegen_category]]`/`[[codegen_template]]`/`[[codegen_aggregator]]`/`[codegen_prelude.<类别>]`,见 `CodegenExtension.md` §2);见 `example/params.toml` 与 `example/custom_templates/`。TOML 值覆盖内置默认,命令行选项始终优先。
@@ -199,7 +200,7 @@ AternyxParser.exe <compile_commands.json|目录> [--target <名>] [选项]
 1. **分析报告**(不带 `--target`):按 `output` 字段中的 `CMakeFiles/<target>.dir/` 把每条编译记录归入 target,收集各 target 的源文件、include 路径(`-I`/`/I`/`-isystem`,**原样采用不做过滤**)、`-D` 宏定义与语言标准;控制台打印报告,并写 `<output>/cmake_targets_report.json`。
 2. **target 级生成**(`--target <名>`):对该 target 的全部 .cpp(或,`parse_headers` 开启时,其注解头文件),用其 include 路径/宏/标准逐个解析,合并去重后一次生成到 `-o` 目录。任一文件解析失败即抛异常终止。
 
-3. **`parse_headers`(.h-as-source)**:不再解析 .cpp,改为扫描 target 各 .cpp 所在目录(递归,可加 `-p` 附加根)下的 `.h/.hpp/.hxx/.hh`,**文本预筛**含注解标记(默认 `CLASS(`、`STRUCT(`、`ENUM_CLASS(`,可用 TOML `header_markers` 覆盖)的头文件后逐个解析。使用约定:
+3. **`parse_headers`(.h-as-source)**:不再解析 .cpp,改为解析注解头文件。候选头优先取 `--headers-file` 显式清单(每行一个路径,给出即隐含开启本模式);缺省回落为扫描 target 各 .cpp 所在目录(递归,可加 `-p` 附加根)下的 `.h/.hpp/.hxx/.hh`。两种来源都经过**文本预筛**:只保留含注解标记(默认 `CLASS(`、`STRUCT(`、`ENUM_CLASS(`,可用 TOML `header_markers` 覆盖)的头文件后逐个解析。使用约定:
 
    - **头文件自包含**:单独立编译必须通过(否则报错,消息中会说明该约定);
    - **头文件不 include 生成物**、注解只写在头文件里(.cpp 内注解的类型不会被收集);
@@ -236,10 +237,11 @@ aternyx_target_codegen(my_target
   PARSER <AternyxParser可执行文件>          # 也可以是 aternyx_add_parser_tool 构建的自定义解析工具
   TEMPLATE_DIR <模板目录>
   OUTPUT_DIR ${CMAKE_BINARY_DIR}/generated   # 可选,默认 <build>/generated
-  PROJECT_ROOT <目录>                        # 可选,parse_headers 附加扫描根
   CONFIG <工程无关配置.toml>                  # 可选,gen_path_style/parse_headers/header_markers + CodegenExtension.md §2 的 codegen 注册键
   EXTRA_INCLUDE_PATHS <目录>...)              # 可选,追加 include 路径
 ```
+
+parse_headers 模式下,`aternyx_target_codegen` 把 target 以源文件形式列出的头文件写成 `--headers-file` 清单传给解析器——把头文件加进 `add_library`/`add_executable` 的源列表(GLOB 或显式均可),注解头在源码树任何层级都会被发现。
 
 注意:多目标时给每个目标单独的 `OUTPUT_DIR`(每次生成按目标重写 `all_include.gen.h`);INTERFACE/umbrella 目标在 compile db 中无条目,不支持。
 
