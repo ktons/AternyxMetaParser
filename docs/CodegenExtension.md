@@ -106,9 +106,12 @@ includes = ["<yaml-cpp/yaml.h>"]
 
 > **引号约定(最易踩的坑)**:per-file 模板里写 `#include "{{include_path}}"`(模板带引号,与 `gen_include_path` 一致);聚合器模板里写 `#include {{include_path}}`(数据带引号)。内置模板正是这两种写法。
 
+> **禁止模板注释(重要,Windows 下必崩)**:模板里**不写 `{{! ... }}` 注释**,生成器加载时检出即报错。原因:vendored mustache 解析时对每个标签定界符内的内容做 trim,`std::isspace(char)` 在 MSVC 下 `char` 有符号,UTF-8 中文等非 ASCII 字节即负数 → UB → Debug 构建直接断言崩溃(0x80000003,**无任何错误输出**,Release 下也是 UB)。纯 ASCII 注释虽不触发,但为杜绝该类问题一律禁止;想留的说明写进文档,不写进模板。(2026-09,`SerializationBinary.mustache` 中文注释引发的崩溃)
+
 其他约定:
 
 - 渲染结果经 trim,不做 HTML 转义;
+- 模板内禁止 `{{! ... }}` 注释(见上文"禁止模板注释");
 - 模板语法错误 = 生成失败(fail-fast);模板文件缺失 = stderr 警告并跳过该条目(可当禁用开关);
 - 聚合器约定先 `#include "all_include.gen.h"` 再使用单文件生成头;`__REFLECTION_PARSER__` 守卫写法照抄内置模板(解析模式下生成头不被解析)。
 

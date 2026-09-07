@@ -89,6 +89,7 @@ C++ 源码(标注宏) ──libclang──▶ MetaStruct/MetaField(AST 元数据
 - **类别是开放字符串**:内置 serialization/editor_ui/reflection 三类决定生成子目录(`kSubDirNames` 的 snake/Camel 两套拼写现在是 `CodegenCategory` 数据);自定义类别随意注册。
 - **allinclude 是普通注册项**(`CodegenAggregator`,每类别一条):从注册表移除即禁用某类别的 allinclude;自定义类别可以注册自己的聚合器。聚合器头部注入该类别的 **prelude**(prelude 已从库中移出,是 `CodegenConfig::preludes` 配置数据,库默认为空——见 `CodegenExtension.md` §2.5)。
 - 模板文件缺失只警告并跳过该条目(可当禁用开关);模板语法错误或注册表校验失败(未知类别、重名)直接抛异常。
+- **模板内禁止 `{{! ... }}` 注释**(2026-09 起,加载时检出即报错):vendored mustache 对标签内容做 trim,`std::isspace(char)` 遇非 ASCII 字节(如中文)是 UB,MSVC Debug 构建直接断言崩溃且无错误输出。机制与规则详见 `CodegenExtension.md` §2.3。
 
 输出目录:`<output>/<serialization|editor_ui|reflection|...>/`。每类目录下的 `all_include.gen.h` 头部注入该类别的 prelude include(见下文"include 拼写策略"与 `CodegenExtension.md` §2);单文件生成头不注入 prelude,约定先 include `all_include.gen.h` 再使用。
 

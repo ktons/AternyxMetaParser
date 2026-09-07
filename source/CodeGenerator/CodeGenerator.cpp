@@ -105,7 +105,21 @@ void CodeGenerator::Init(const CodegenConfig& config, CodegenHooks hooks) {
     std::stringstream buffer;
     buffer << ifs.rdbuf();
     ifs.close();
-    kainjow::mustache::mustache loaded{buffer.str()};
+    // Template comments are banned outright: the vendored mustache trims every
+    // tag's contents with std::isspace(char), and non-ASCII bytes inside a tag
+    // (e.g. a Chinese note) are UB there — an MSVC debug build dies in the CRT
+    // assert (0x80000003, no error output). See docs/CodegenExtension.md §2.3.
+    if (buffer.str().find("{{!") != std::string::npos) {
+      throw std::runtime_error("Invalid mustache template: " + filePath.string() +
+                               " (template comments \"{{! ... }}\" are not allowed; put the note in the docs)");
+    }
+    kainjow::mustache::mustache loaded = [&]() {
+      try {
+        return kainjow::mustache::mustache{buffer.str()};
+      } catch (const std::exception& e) {
+        throw std::runtime_error("failed to load mustache template: " + filePath.string() + " (" + e.what() + ")");
+      }
+    }();
     if (!loaded.is_valid()) {
       throw std::runtime_error("Invalid mustache template: " + filePath.string() + " (" + loaded.error_message() +
                                ")");

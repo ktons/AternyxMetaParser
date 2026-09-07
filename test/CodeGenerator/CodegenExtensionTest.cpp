@@ -34,7 +34,8 @@ std::string ReadFileContent(const fs::path& path) {
 
 // A minimal annotated type: one property, attributes decide which templates
 // pick it up. `sourceFile` groups per-file outputs.
-Aternyx::MetaStruct MakeStruct(const std::string& typeName, const std::string& sourceFile,
+Aternyx::MetaStruct MakeStruct(const std::string& typeName,
+                               const std::string& sourceFile,
                                const std::vector<std::string>& attributes) {
   Aternyx::MetaStruct metaStruct;
   metaStruct.kind = CXCursor_StructDecl;
@@ -62,8 +63,8 @@ class CodegenExtensionTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    fs::remove_all(template_dir_);
-    fs::remove_all(output_dir_);
+    // fs::remove_all(template_dir_);
+    // fs::remove_all(output_dir_);
   }
 
   Aternyx::CodegenConfig BaseConfig() const {
@@ -118,7 +119,8 @@ TEST_F(CodegenExtensionTest, RemovedAggregatorDisablesAllInclude) {
   config.templatePath = (fs::current_path() / "Template").string();
   config.includeRoots = {fs::temp_directory_path().string()};
   config.aggregators = Aternyx::DefaultAggregators();
-  config.aggregators.erase(std::remove_if(config.aggregators.begin(), config.aggregators.end(),
+  config.aggregators.erase(std::remove_if(config.aggregators.begin(),
+                                          config.aggregators.end(),
                                           [](const Aternyx::CodegenAggregator& a) {
                                             return a.category == std::string(Aternyx::kCategoryEditorUi);
                                           }),
@@ -168,8 +170,7 @@ TEST_F(CodegenExtensionTest, PreludesAppearInAggregator) {
   Aternyx::AstTree ast2;
   ast2.metaStructList.push_back(MakeStruct("P", sourceFile, {"Serialization"}));
   Generate(plainConfig, {}, ast2);
-  EXPECT_EQ(ReadFileContent(output_dir_ / "serialization" / "all_include.gen.h").find("yaml-cpp"),
-            std::string::npos);
+  EXPECT_EQ(ReadFileContent(output_dir_ / "serialization" / "all_include.gen.h").find("yaml-cpp"), std::string::npos);
 }
 
 // A custom category can register its own aggregator; the prelude ordering
@@ -291,7 +292,8 @@ TEST_F(CodegenExtensionTest, TransformJobsRewritesOutputName) {
   Aternyx::CodegenHooks hooks;
   hooks.transformJobs = [](std::vector<Aternyx::GenJob>& jobs) {
     for (Aternyx::GenJob& job : jobs) {
-      if (job.outputKind == Aternyx::OutputKind::PerSourceFile && job.category == std::string(Aternyx::kCategorySerialization))
+      if (job.outputKind == Aternyx::OutputKind::PerSourceFile &&
+          job.category == std::string(Aternyx::kCategorySerialization))
         job.outputName = "renamed.gen.h";
     }
   };
@@ -320,10 +322,10 @@ TEST_F(CodegenExtensionTest, TransformJobsRemovesCategory) {
 
   Aternyx::CodegenHooks hooks;
   hooks.transformJobs = [](std::vector<Aternyx::GenJob>& jobs) {
-    jobs.erase(std::remove_if(jobs.begin(), jobs.end(),
-                              [](const Aternyx::GenJob& job) {
-                                return job.category == std::string(Aternyx::kCategoryEditorUi);
-                              }),
+    jobs.erase(std::remove_if(
+                   jobs.begin(),
+                   jobs.end(),
+                   [](const Aternyx::GenJob& job) { return job.category == std::string(Aternyx::kCategoryEditorUi); }),
                jobs.end());
   };
 
@@ -370,8 +372,7 @@ TEST_F(CodegenExtensionTest, TransformOutputCanSkipWrites) {
   ast.metaStructList.push_back(MakeStruct("S", sourceFile, {"Serialization", "EditorUi"}));
 
   Aternyx::CodegenHooks hooks;
-  hooks.transformOutput = [](const Aternyx::GenJob& job,
-                             std::string content) -> std::optional<std::string> {
+  hooks.transformOutput = [](const Aternyx::GenJob& job, std::string content) -> std::optional<std::string> {
     if (job.outputKind == Aternyx::OutputKind::CategoryAggregator ||
         job.category == std::string(Aternyx::kCategoryEditorUi))
       return std::nullopt;
