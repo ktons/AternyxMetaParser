@@ -33,6 +33,73 @@
 #    all_include.gen.h aggregators for the target it generated.
 #  - INTERFACE/umbrella targets produce no compile_commands.json entries and
 #    cannot be processed.
+#  - Cascade dependency: annotated headers may be transitively included across
+#    link boundaries (a component header including a Resource-layer format
+#    header makes the parser emit a second copy of that type's generated
+#    header into this target's OUTPUT_DIR). Each mount records its stamp as
+#    the ATERNYX_CODEGEN_STAMP target property; a mount whose link closure
+#    reaches another mount depends on that mount's stamp, so an upstream
+#    re-run cascades a re-parse downstream. Without this, a stale same-name
+#    copy in a downstream OUTPUT_DIR desynchronizes read/write field sets
+#    (silent codec roundtrip failure).
+
+# Walk TARGET_NAME's link closure collecting codegen mounts: upstream stamp
+# file paths into ${OUT_STAMPS}, upstream custom target names into
+# ${OUT_TARGETS}. Both LINK_LIBRARIES and INTERFACE_LINK_LIBRARIES are
+# followed on every node: a PRIVATE link dep's headers are still parse inputs
+# of the depending target. Generator expressions and non-target items are
+# skipped; the visited set guards against alias/self loops.
+function(_aternyx_codegen_collect_upstream_stamps TARGET_NAME OUT_STAMPS OUT_TARGETS)
+  set(_visited "")
+  set(_queue "${TARGET_NAME}")
+  set(_stamps "")
+  set(_targets "")
+  while(_queue)
+    list(POP_FRONT _queue _current)
+    if(_current IN_LIST _visited)
+      continue()
+    endif()
+    list(APPEND _visited "${_current}")
+    if(NOT TARGET "${_current}")
+      continue()
+    endif()
+    # ALIAS 目标读透到真身: stamp 属性与依赖名都归真身所有
+    get_target_property(_aliased "${_current}" ALIASED_TARGET)
+    if(NOT "${_aliased}" MATCHES "NOTFOUND$")
+      set(_current "${_aliased}")
+      if(_current IN_LIST _visited)
+        continue()
+      endif()
+      list(APPEND _visited "${_current}")
+    endif()
+    get_target_property(_stamp "${_current}" ATERNYX_CODEGEN_STAMP)
+    if(_stamp AND NOT "${_stamp}" MATCHES "NOTFOUND$")
+      list(APPEND _stamps "${_stamp}")
+      list(APPEND _targets "aternyx_codegen_${_current}")
+    endif()
+    foreach(_prop IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+      get_target_property(_libs "${_current}" ${_prop})
+      if(_libs AND NOT "${_libs}" MATCHES "NOTFOUND$")
+        foreach(_lib IN LISTS _libs)
+          if(_lib MATCHES "^\\$<" OR _lib IN_LIST _visited)
+            continue()
+          endif()
+          if(TARGET "${_lib}")
+            list(APPEND _queue "${_lib}")
+          endif()
+        endforeach()
+      endif()
+    endforeach()
+  endwhile()
+  if(_stamps)
+    list(REMOVE_DUPLICATES _stamps)
+  endif()
+  if(_targets)
+    list(REMOVE_DUPLICATES _targets)
+  endif()
+  set(${OUT_STAMPS} "${_stamps}" PARENT_SCOPE)
+  set(${OUT_TARGETS} "${_targets}" PARENT_SCOPE)
+endfunction()
 
 function(aternyx_target_codegen TARGET_NAME)
   cmake_parse_arguments(ATC "" "PARSER;OUTPUT_DIR;TEMPLATE_DIR;CONFIG"
@@ -154,6 +221,15 @@ function(aternyx_target_codegen TARGET_NAME)
     list(APPEND _codegen_deps "${_codegen_headers_file}")
   endif()
 
+  # 级联依赖: 链接闭包内上游挂载点重跑必然重写其 stamp (新于本 stamp 即触发本侧
+  # 重解析), 传递包含的外部注解头变更不再需要手动删 stamp; stamp 文件依赖同时给
+  # ninja 排出先上游后下游的执行序
+  _aternyx_codegen_collect_upstream_stamps("${TARGET_NAME}" _codegen_upstream_stamps
+                                           _codegen_upstream_targets)
+  if(_codegen_upstream_stamps)
+    list(APPEND _codegen_deps ${_codegen_upstream_stamps})
+  endif()
+
   add_custom_command(
     OUTPUT "${ATC_STAMP}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ATC_OUTPUT_DIR}"
@@ -164,7 +240,14 @@ function(aternyx_target_codegen TARGET_NAME)
     VERBATIM)
 
   add_custom_target(aternyx_codegen_${TARGET_NAME} DEPENDS "${ATC_STAMP}")
+  # 目标级依赖兜底上游执行序 (跨目录 custom command 输出的可移植保证)
+  if(_codegen_upstream_targets)
+    add_dependencies(aternyx_codegen_${TARGET_NAME} ${_codegen_upstream_targets})
+  endif()
   add_dependencies(${TARGET_NAME} aternyx_codegen_${TARGET_NAME})
+
+  # 下游挂载点经链接闭包发现本挂载点 (ATERNYX_CODEGEN_STAMP), 见文件头级联依赖说明
+  set_property(TARGET ${TARGET_NAME} PROPERTY ATERNYX_CODEGEN_STAMP "${ATC_STAMP}")
 
   # Single point of truth: the directory we generate into is also the
   # directory the target resolves generated includes from.
